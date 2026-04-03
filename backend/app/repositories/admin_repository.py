@@ -27,10 +27,10 @@ class AdminRepository:
     async def get_user(self, db: AsyncSession, user_id: int) -> Optional[User]:
         return (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
 
-    async def count_failed_jobs(self, db: AsyncSession) -> int:
-        return (await db.execute(select(func.count(Job.id)).where(Job.status == "failed"))).scalar_one()
+    async def count_jobs_by_status(self, db: AsyncSession, status: str) -> int:
+        return (await db.execute(select(func.count(Job.id)).where(Job.status == status))).scalar_one()
 
-    async def list_failed_jobs(self, db: AsyncSession, offset: int, limit: int) -> Sequence[Job]:
-        return (await db.execute(select(Job).where(Job.status == "failed").order_by(desc(Job.created_at)).offset(offset).limit(limit))).scalars().all()
+    async def list_jobs_by_status(self, db: AsyncSession, status: str, offset: int, limit: int) -> Sequence[Job]:
+        return (await db.execute(select(Job).where(Job.status == status).order_by(desc(Job.created_at)).offset(offset).limit(limit))).scalars().all()
 
 admin_repo = AdminRepository()

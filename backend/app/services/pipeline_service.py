@@ -41,12 +41,11 @@ class PipelineService:
                     detail={"name": pipe.name, "steps": len(steps)}, request=request_for_audit)
         return pipe
 
-    async def list_pipelines(self, user_id: int, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
-        page_size = min(page_size, 100)
-        offset = (page - 1) * page_size
+    async def list_pipelines(self, user_id: int, offset: int = 0, limit: int = 20):
+        limit = min(limit, 100)
         total = await pipeline_repo.count_by_user(self.db, user_id)
-        items = await pipeline_repo.list_by_user(self.db, user_id, offset, page_size)
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        items = await pipeline_repo.list_by_user(self.db, user_id, offset, limit)
+        return items, total
 
     async def get_pipeline(self, pipeline_id: int, user_id: int) -> Pipeline:
         pipe = await pipeline_repo.get_by_user(self.db, pipeline_id, user_id)
@@ -162,30 +161,24 @@ class PipelineService:
                 out.append({"date": d, "executions": 0, "success": 0})
         return out
 
-    async def list_executions(self, pipeline_id: int, user_id: int) -> List[Any]:
+    async def list_executions(self, pipeline_id: int, user_id: int):
         await self.get_pipeline( pipeline_id, user_id)
         execs = await execution_repo.list_by_pipeline(self.db, pipeline_id)
-        out = []
-        from app.schemas import ExecutionOut
         for ex in execs:
-            d = ExecutionOut.model_validate(ex)
             if ex.output_s3_key and ex.status in ("success", "partial"):
-                try: d.download_url = await get_signed_url_async(ex.output_s3_key, settings.S3_BUCKET_OUTPUT)
+                try: ex.download_url = await get_signed_url_async(ex.output_s3_key, settings.S3_BUCKET_OUTPUT)
                 except: pass
-            out.append(d)
-        return out
+        return execs
 
     async def get_execution(self, pipeline_id: int, execution_id: int, user_id: int) -> Any:
         await self.get_pipeline( pipeline_id, user_id)
         ex = await execution_repo.get_by_pipeline(self.db, pipeline_id, execution_id)
         if not ex:
             raise NotFoundError("Execution not found")
-        from app.schemas import ExecutionOut
-        d = ExecutionOut.model_validate(ex)
         if ex.output_s3_key and ex.status in ("success", "partial"):
-            try: d.download_url = await get_signed_url_async(ex.output_s3_key, settings.S3_BUCKET_OUTPUT)
+            try: ex.download_url = await get_signed_url_async(ex.output_s3_key, settings.S3_BUCKET_OUTPUT)
             except: pass
-        return d
+        return ex
 
     async def fork_pipeline(self, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> Pipeline:
         old = await self.get_pipeline( pipeline_id, user_id)

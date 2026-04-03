@@ -5,7 +5,8 @@ API v1 admin endpoints.
 Constraint: Must depend only on Services and schemas.
 No raw SQLAlchemy models or sessions operations permitted.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
+from app.core.exceptions import ForbiddenError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from typing import Optional
@@ -20,12 +21,12 @@ limiter = Limiter(key_func=get_remote_address)
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin and not user.is_super_admin:
-        raise HTTPException(403, "Admin access required")
+        raise ForbiddenError("Admin access required")
     return user
 
 async def require_super_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_super_admin:
-        raise HTTPException(403, "Super-admin access required for this operation")
+        raise ForbiddenError("Super-admin access required for this operation")
     return user
 
 @router.get("/dlq")

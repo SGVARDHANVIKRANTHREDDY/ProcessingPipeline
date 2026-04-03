@@ -35,13 +35,13 @@ class PipelineExecutionRepository(BaseRepository[PipelineExecution]):
         result = await db.execute(select(self.model).filter(self.model.pipeline_id == pipeline_id).order_by(self.model.created_at.desc()).limit(limit))
         return result.scalars().all()
 
-    async def get_activity_metrics(self, db: AsyncSession, user_id: int, days: int = 14):
+    async def get_activity_metrics(self, db: AsyncSession, user_id: int, success_status: str = 'success', days: int = 14):
         cutoff = datetime.utcnow() - timedelta(days=days)
         query = (
             select(
                 func.date(self.model.created_at).label('d'),
                 func.count(self.model.id).label('total'),
-                func.sum(case((self.model.status == 'success', 1), else_=0)).label('success')
+                func.sum(case((self.model.status == success_status, 1), else_=0)).label('success')
             )
             .join(Pipeline, self.model.pipeline_id == Pipeline.id)
             .where(

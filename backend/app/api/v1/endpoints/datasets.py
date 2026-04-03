@@ -6,7 +6,8 @@ Constraint: Must depend only on Services and schemas.
 No raw SQLAlchemy models or sessions operations permitted.
 """
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
+from app.core.exceptions import ValidationError, DomainError
 from app.core.database.routing import read_db, write_db
 from app.models import User
 from app.core.security.auth import get_current_user
@@ -27,23 +28,23 @@ async def upload_dataset(
     if content_length:
         cl = int(content_length)
         if cl > settings.MAX_UPLOAD_SIZE_BYTES:
-            raise HTTPException(413, f"File too large ({cl} bytes). Max {settings.MAX_UPLOAD_SIZE_BYTES} limit")
+            raise ValidationError(f"File too large ({cl} bytes). Max {settings.MAX_UPLOAD_SIZE_BYTES} limit")
 
     if _upload_semaphore.locked() and _upload_semaphore._value == 0:
-        raise HTTPException(503, "Upload queue full - please retry in a few seconds")
+        raise ValidationError("Upload queue full - please retry in a few seconds")
 
     async with _upload_semaphore:
         form = await request.form()
         file = form.get("file")
         if not file:
-            raise HTTPException(400, "No file provided")
+            raise ValidationError("No file provided")
 
         chunks = []
         total = 0
         async for chunk in file.file:
             total += len(chunk)
             if total > settings.MAX_UPLOAD_SIZE_BYTES:
-                raise HTTPException(413, f"File exceeds {settings.MAX_UPLOAD_SIZE_BYTES} limit")
+                raise ValidationError(f"File exceeds {settings.MAX_UPLOAD_SIZE_BYTES} limit")
             chunks.append(chunk)
         content = b"".join(chunks)
 

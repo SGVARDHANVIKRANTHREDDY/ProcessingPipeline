@@ -14,12 +14,12 @@ class AdminService:
     def __init__(self, db):
         self.db = db
 
-    async def list_dlq(self, admin_id: int, page: int, replayed: bool, suppressed: bool, request_for_audit: Any = None) -> Dict[str, Any]:
+    async def list_dlq(self, admin_id: int, offset: int, limit: int, replayed: bool, suppressed: bool, request_for_audit: Any = None):
         await audit(self.db, AuditAction.ADMIN_DLQ_VIEW, user_id=admin_id,
-                    detail={"page": page}, request=request_for_audit)
-        offset = (page - 1) * 20
+                    detail={"offset": offset, "limit": limit}, request=request_for_audit)
+
         total = await admin_repo.count_dlq(self.db, replayed, suppressed)
-        items = await admin_repo.list_dlq(self.db, replayed, suppressed, offset, 20)
+        items = await admin_repo.list_dlq(self.db, replayed, suppressed, offset, limit)
         return {
             "items": [{"id": e.id, "task_name": e.task_name, "queue": e.queue, "error": e.error[:200],
                        "retry_count": e.retry_count, "replay_count": e.replay_count, "suppressed": e.suppressed,
@@ -40,18 +40,13 @@ class AdminService:
                         detail={"entry_id": entry_id, "phase": "rejected", "reason": str(e)}, request=request_for_audit)
             raise ValidationError(str(e))
 
-    async def query_audit(self, admin_id: int, page: int, action: Optional[str], user_id: Optional[int], resource_type: Optional[str], request_for_audit: Any = None) -> Dict[str, Any]:
+    async def query_audit(self, admin_id: int, offset: int, limit: int, action: Optional[str], user_id: Optional[int], resource_type: Optional[str], request_for_audit: Any = None):
         await audit(self.db, AuditAction.ADMIN_VIEW_AUDIT, user_id=admin_id,
                     detail={"filters": {"action": action, "user_id": user_id}}, request=request_for_audit)
-        offset = (page - 1) * 50
+
         total = await admin_repo.count_audit(self.db, action, user_id, resource_type)
-        items = await admin_repo.list_audit(self.db, action, user_id, resource_type, offset, 50)
-        return {
-            "items": [{"id": e.id, "global_seq": e.global_seq, "user_id": e.user_id, "action": e.action,
-                       "resource_type": e.resource_type, "resource_id": e.resource_id, "ip_address": e.ip_address,
-                       "detail": e.detail, "created_at": e.created_at.isoformat()} for e in items],
-            "total": total
-        }
+        items = await admin_repo.list_audit(self.db, action, user_id, resource_type, offset, limit)
+        return items, total
 
     async def verify_audit(self, admin_id: int, user_id: Optional[int], limit: int, request_for_audit: Any = None) -> Dict[str, Any]:
         result = await verify_audit_chain(self.db, user_id=user_id, limit=limit)
@@ -110,12 +105,9 @@ class AdminService:
                     detail={"granted_by": admin_id, "email": target.email}, request=request_for_audit)
         return {"user_id": target_id, "is_super_admin": True}
 
-    async def list_failed_jobs(self, page: int) -> Dict[str, Any]:
-        offset = (page - 1) * 20
-        total = await admin_repo.count_failed_jobs(self.db)
-        items = await admin_repo.list_failed_jobs(self.db, offset, 20)
-        return {
-            "items": [{"id": j.id, "job_type": j.job_type, "error": j.error, "created_at": j.created_at.isoformat()} for j in items],
-            "total": total
-        }
+    async def list_failed_jobs(self, offset: int, limit: int):
+
+        total = await admin_repo.count_jobs_by_status(self.db, "failed")
+        items = await admin_repo.list_jobs_by_status(self.db, "failed", offset, limit)
+        return items, total
 

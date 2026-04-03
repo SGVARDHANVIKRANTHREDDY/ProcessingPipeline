@@ -524,4 +524,4 @@ Nginx or Traefik as reverse proxy
 
 Prometheus + Grafana for metrics
 
-OpenTelemetry for tracing.
+OpenTelemetry for tracing

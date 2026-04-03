@@ -27,9 +27,9 @@ class AuthService:
             raise ConflictError("Email already registered")
 
         user = User(email=body.email, hashed_password=hash_password(body.password))
-        self.self.db.add(user)
-        await self.self.db.flush()
-        await self.self.db.refresh(user)
+        self.db.add(user)
+        await self.db.flush()
+        await self.db.refresh(user)
 
         tokens = await create_token_pair(self.db, user.id)
         await audit(self.db, AuditAction.AUTH_REGISTER, user_id=user.id,
@@ -40,7 +40,7 @@ class AuthService:
         user = await user_repo.get_by_email(self.db, body.email)
 
         async def record(success: bool):
-            self.self.db.add(LoginAttempt(email=body.email, ip_address=ip[:45], success=success))
+            self.db.add(LoginAttempt(email=body.email, ip_address=ip[:45], success=success))
 
         if not user:
             await record(False)

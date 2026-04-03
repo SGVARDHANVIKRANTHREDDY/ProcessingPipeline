@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import User
 from app.repositories.admin_repository import admin_repo
 from app.core.exceptions import NotFoundError, ValidationError, ForbiddenError, DependencyError
-from app.services.dead_letter import replay_dlq_entry
+from app.worker.dead_letter import replay_dlq_entry
 from app.core.security.audit import verify_audit_chain, verify_global_sequence_integrity, AuditAction, audit
 
 class AdminService:
@@ -73,7 +73,7 @@ class AdminService:
             return {"user_id": target_id, "is_admin": True, "message": "Already admin"}
         
         target.is_admin = True
-        await self.self.db.flush()
+        await self.db.flush()
         await audit(self.db, AuditAction.ADMIN_GRANT_ADMIN, user_id=admin_id,
                     resource_type="user", resource_id=target_id,
                     detail={"granted_by": admin_id, "email": target.email}, request=request_for_audit)
@@ -88,7 +88,7 @@ class AdminService:
             raise NotFoundError("User not found")
         
         target.is_admin = False
-        await self.self.db.flush()
+        await self.db.flush()
         await audit(self.db, AuditAction.ADMIN_REVOKE_ADMIN, user_id=admin_id,
                     resource_type="user", resource_id=target_id,
                     detail={"revoked_by": admin_id}, request=request_for_audit)
@@ -104,7 +104,7 @@ class AdminService:
         
         target.is_super_admin = True
         target.is_admin = True
-        await self.self.db.flush()
+        await self.db.flush()
         await audit(self.db, AuditAction.ADMIN_GRANT_SUPER, user_id=admin_id,
                     resource_type="user", resource_id=target_id,
                     detail={"granted_by": admin_id, "email": target.email}, request=request_for_audit)

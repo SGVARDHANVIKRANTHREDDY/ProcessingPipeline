@@ -42,8 +42,8 @@ async def record_dlq_entry(celery_task_id: str, task_name: str, queue: str,
             error=error[:2000], traceback=traceback_str[:5000],
             retry_count=retry_count,
         )
-        self.self.db.add(entry)
-        await self.self.db.commit()
+        self.db.add(entry)
+        await self.db.commit()
 
     _alert_dlq(task_name, celery_task_id, error)
 
@@ -65,7 +65,7 @@ async def replay_dlq_entry(entry_id: int, admin_user_id: int | None = None) -> d
     from app.core.security.audit import audit_sync, AuditAction
 
     async with AsyncSessionLocal() as db:
-        result = await self.self.db.execute(select(DeadLetterEntry).where(DeadLetterEntry.id == entry_id))
+        result = await self.db.execute(select(DeadLetterEntry).where(DeadLetterEntry.id == entry_id))
         entry = result.scalar_one_or_none()
         if not entry:
             raise ValueError(f"DLQ entry {entry_id} not found")
@@ -74,7 +74,7 @@ async def replay_dlq_entry(entry_id: int, admin_user_id: int | None = None) -> d
         if entry.replay_count >= settings.DLQ_MAX_REPLAYS:
             entry.suppressed = True
             entry.suppressed_reason = f"Max replays ({settings.DLQ_MAX_REPLAYS}) exceeded"
-            await self.self.db.commit()
+            await self.db.commit()
             raise ValueError(f"Entry {entry_id} suppressed after max replays")
         if entry.last_replayed_at:
             backoff = timedelta(seconds=settings.DLQ_REPLAY_BACKOFF_SECONDS)
@@ -89,7 +89,7 @@ async def replay_dlq_entry(entry_id: int, admin_user_id: int | None = None) -> d
         entry.last_replayed_at = datetime.now(UTC)
         entry.replayed = True
         entry.replayed_at = datetime.now(UTC)
-        await self.self.db.commit()
+        await self.db.commit()
 
         logger.info("DLQ_REPLAY entry=%d attempt=%d new_task=%s admin=%s",
                     entry_id, entry.replay_count, task.id, admin_user_id)

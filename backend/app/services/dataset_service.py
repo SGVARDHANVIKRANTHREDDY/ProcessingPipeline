@@ -16,7 +16,7 @@ from app.services.storage import (
     upload_file_async, delete_object_async, generate_upload_key, download_to_df_async
 )
 from app.services.profiler import generate_smart_suggestions, detect_anomalies
-from app.services.tasks import profile_dataset_task
+from app.worker.tasks import profile_dataset_task
 from app.core.security.csv_sanitizer import validate_and_sanitize_csv, SecurityError
 from app.core.security.audit import audit, AuditAction
 from app.core.security.idempotency import get_or_create_idempotency_key, complete_idempotency_key, fail_idempotency_key
@@ -82,21 +82,21 @@ class DatasetService:
             s3_key=s3_key, row_count=len(sanitized.df), col_count=len(sanitized.df.columns),
             file_size_bytes=len(content), profiling_status="pending", file_hash=sanitized.file_hash,
         )
-        self.self.db.add(dataset)
-        await self.self.db.flush()
-        await self.self.db.refresh(dataset)
+        self.db.add(dataset)
+        await self.db.flush()
+        await self.db.refresh(dataset)
 
         job = Job(user_id=user.id, job_type="profile", payload={"dataset_id": dataset.id}, status="pending")
-        self.self.db.add(job)
-        await self.self.db.flush()
-        await self.self.db.refresh(job)
+        self.db.add(job)
+        await self.db.flush()
+        await self.db.refresh(job)
 
         task = profile_dataset_task.apply_async(
             args=[dataset.id, user.id, job.id],
             task_id=f"profile-{dataset.id}-{uuid.uuid4().hex[:8]}",
         )
         job.celery_task_id = task.id
-        await self.self.db.commit()
+        await self.db.commit()
 
         await audit(self.db, AuditAction.DATASET_UPLOAD, user_id=user.id,
                     resource_type="dataset", resource_id=dataset.id,
@@ -108,7 +108,7 @@ class DatasetService:
 
         if idem_key:
             await complete_idempotency_key(self.db, user.id, idem_key, 202, result)
-            await self.self.db.commit()
+            await self.db.commit()
 
         return result
 

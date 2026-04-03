@@ -6,8 +6,6 @@ Constraint: Must depend only on Services and schemas.
 No raw SQLAlchemy models or sessions operations permitted.
 """
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database.engine import get_db
 from app.models import User
 from app.schemas import UserRegister, UserLogin, TokenPair, RefreshRequest, UserOut
 from app.core.security.auth import get_current_user

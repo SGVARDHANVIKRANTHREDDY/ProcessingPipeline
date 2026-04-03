@@ -7,7 +7,6 @@ No raw SQLAlchemy models or sessions operations permitted.
 """
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database.routing import read_db, write_db
 from app.models import User
 from app.core.security.auth import get_current_user

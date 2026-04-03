@@ -108,7 +108,7 @@ def mock_s3(monkeypatch):
     mock.ensure_buckets.return_value = None
     monkeypatch.setattr("app.routers.datasets.s3", mock)
     monkeypatch.setattr("app.routers.pipelines.s3", mock)
-    monkeypatch.setattr("app.services.tasks.s3", mock)
+    monkeypatch.setattr("app.worker.tasks.s3", mock)
     return mock
 
 

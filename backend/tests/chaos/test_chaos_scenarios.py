@@ -140,7 +140,7 @@ class TestDLQPoisonMessageSuppression:
 
         entry = DeadLetterEntry(
             celery_task_id="test-task-id",
-            task_name="app.services.tasks.execute_pipeline_task",
+            task_name="app.worker.tasks.execute_pipeline_task",
             queue="execution",
             error="persistent error",
             replay_count=settings.DLQ_MAX_REPLAYS,  # at max

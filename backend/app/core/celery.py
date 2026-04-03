@@ -35,10 +35,10 @@ def create_celery_app() -> Celery:
         result_expires=86400,
         task_max_retries=settings.JOB_MAX_RETRIES,
         task_routes={
-            "app.services.tasks.profile_dataset_task":        {"queue": "profiling"},
-            "app.services.tasks.execute_pipeline_task":       {"queue": "execution"},
-            "app.services.tasks.recover_stale_executions":    {"queue": "default"},
-            "app.services.tasks.cleanup_expired_idempotency": {"queue": "default"},
+            "app.worker.tasks.profile_dataset_task":        {"queue": "profiling"},
+            "app.worker.tasks.execute_pipeline_task":       {"queue": "execution"},
+            "app.worker.tasks.recover_stale_executions":    {"queue": "default"},
+            "app.worker.tasks.cleanup_expired_idempotency": {"queue": "default"},
         },
         task_default_queue="default",
         broker_pool_limit=20,
@@ -46,17 +46,17 @@ def create_celery_app() -> Celery:
         # ── v8 FIX: beat_schedule defined — was missing in v7 ──────────────
         beat_schedule={
             "recover-stale-executions": {
-                "task": "app.services.tasks.recover_stale_executions",
+                "task": "app.worker.tasks.recover_stale_executions",
                 "schedule": settings.JOB_HARD_TIME_LIMIT,   # every JOB_HARD_TIME_LIMIT seconds
                 "options": {"queue": "default"},
             },
             "cleanup-expired-idempotency-keys": {
-                "task": "app.services.tasks.cleanup_expired_idempotency",
+                "task": "app.worker.tasks.cleanup_expired_idempotency",
                 "schedule": 3600,   # every hour
                 "options": {"queue": "default"},
             },
             "cleanup-old-login-attempts": {
-                "task": "app.services.tasks.cleanup_old_login_attempts",
+                "task": "app.worker.tasks.cleanup_old_login_attempts",
                 "schedule": 86400,  # daily
                 "options": {"queue": "default"},
             },

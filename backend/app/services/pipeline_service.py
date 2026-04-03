@@ -20,7 +20,7 @@ from app.core.security.idempotency import (
 )
 from app.services.ai_translator import translate_to_steps
 from app.services.validator import validate_ai_output, detect_schema_mismatch
-from app.services.tasks import execute_pipeline_task
+from app.worker.tasks import execute_pipeline_task
 from app.core.middleware.tracing import inject_trace_into_celery_kwargs
 from app.core.config import get_settings
 
@@ -33,9 +33,9 @@ class PipelineService:
     async def create_pipeline(self, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
         steps = [s.model_dump() for s in body.steps]
         pipe = Pipeline(user_id=user_id, dataset_id=body.dataset_id, name=body.name, steps=steps)
-        self.self.db.add(pipe)
-        await self.self.db.flush()
-        await self.self.db.refresh(pipe)
+        self.db.add(pipe)
+        await self.db.flush()
+        await self.db.refresh(pipe)
         await audit(self.db, AuditAction.PIPELINE_CREATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id,
                     detail={"name": pipe.name, "steps": len(steps)}, request=request_for_audit)
@@ -58,8 +58,8 @@ class PipelineService:
         pipe = await self.get_pipeline( pipeline_id, user_id)
         if body.name is not None: pipe.name = body.name
         if body.steps is not None: pipe.steps = [s.model_dump() for s in body.steps]
-        await self.self.db.flush()
-        await self.self.db.refresh(pipe)
+        await self.db.flush()
+        await self.db.refresh(pipe)
         await audit(self.db, AuditAction.PIPELINE_UPDATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id, request=request_for_audit)
         return pipe
@@ -113,17 +113,17 @@ class PipelineService:
                 status="pending", schema_warnings=schema_warnings or None,
                 idempotency_key=idem_key,
             )
-            self.self.db.add(execution)
-            await self.self.db.flush()
-            await self.self.db.refresh(execution)
+            self.db.add(execution)
+            await self.db.flush()
+            await self.db.refresh(execution)
 
             job = Job(user_id=user_id, job_type="execute",
                       payload={"pipeline_id": pipeline_id, "dataset_id": body.dataset_id,
                                "execution_id": execution.id}, status="pending")
-            self.self.db.add(job)
-            await self.self.db.flush()
-            await self.self.db.refresh(job)
-            await self.self.db.commit()
+            self.db.add(job)
+            await self.db.flush()
+            await self.db.refresh(job)
+            await self.db.commit()
 
             deterministic_task_id = f"exec-{execution.id}"
             task = execute_pipeline_task.apply_async(
@@ -133,12 +133,12 @@ class PipelineService:
             )
             execution.job_id = task.id
             job.celery_task_id = task.id
-            await self.self.db.commit()
+            await self.db.commit()
 
             result = {"execution_id": execution.id, "job_id": job.id, "celery_task_id": task.id, "status": "pending"}
             await complete_idempotency_key(self.db, user_id, idem_key, 202, result)
             await complete_execution_dedup(self.db, user_id, pipeline_id, body.dataset_id, pipe.steps, execution.id)
-            await self.self.db.commit()
+            await self.db.commit()
 
             await audit(self.db, AuditAction.PIPELINE_EXECUTE, user_id=user_id,
                         resource_type="pipeline", resource_id=pipeline_id,
@@ -195,9 +195,9 @@ class PipelineService:
             name=f"{old.name} (Fork)",
             steps=old.steps[:]
         )
-        self.self.db.add(new_pipe)
-        await self.self.db.flush()
-        await self.self.db.refresh(new_pipe)
+        self.db.add(new_pipe)
+        await self.db.flush()
+        await self.db.refresh(new_pipe)
         await audit(self.db, AuditAction.PIPELINE_CREATE, user_id=user_id,
                     resource_type="pipeline", resource_id=new_pipe.id,
                     detail={"forked_from": pipeline_id}, request=request_for_audit)

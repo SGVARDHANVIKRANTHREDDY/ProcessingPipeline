@@ -8,10 +8,8 @@ No raw SQLAlchemy models or sessions operations permitted.
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from app.core.database.engine import get_db
 from app.models import User
 from app.core.security.auth import get_current_user
 from app.core.config import get_settings

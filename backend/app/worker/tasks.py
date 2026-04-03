@@ -21,10 +21,10 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from app.core.celery import celery_app
 from app.core.config import get_settings
-from .storage import download_to_df, upload_csv_from_df_sync
-from .profiler import profile_dataframe, generate_smart_suggestions
-from .executor import execute_pipeline
-from .validator import validate_pipeline_steps, detect_schema_mismatch
+from app.services.storage import download_to_df, upload_csv_from_df_sync
+from app.services.profiler import profile_dataframe, generate_smart_suggestions
+from app.services.executor import execute_pipeline
+from app.services.validator import validate_pipeline_steps, detect_schema_mismatch
 from app.core.security.audit import audit_sync, AuditAction
 from app.core.security.idempotency import deterministic_output_key
 from app.core.middleware.tracing import extract_trace_from_celery_kwargs

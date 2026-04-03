@@ -106,9 +106,9 @@ def mock_s3(monkeypatch):
     mock.generate_upload_key.return_value = "users/1/raw/abc.csv"
     mock.generate_output_key.return_value = "users/1/outputs/abc.csv"
     mock.ensure_buckets.return_value = None
-    monkeypatch.setattr("app.routers.datasets.s3", mock)
-    monkeypatch.setattr("app.routers.pipelines.s3", mock)
-    monkeypatch.setattr("app.worker.tasks.s3", mock)
+#    monkeypatch.setattr("app.routers.datasets.s3", mock)
+#    monkeypatch.setattr("app.routers.pipelines.s3", mock)
+#    monkeypatch.setattr("app.worker.tasks.s3", mock)
     return mock
 
 
@@ -118,6 +118,6 @@ def mock_celery(monkeypatch):
     task_result.id = "test-task-id"
     mp = MagicMock(); mp.apply_async.return_value = task_result
     me = MagicMock(); me.apply_async.return_value = task_result
-    monkeypatch.setattr("app.routers.datasets.profile_dataset_task", mp)
-    monkeypatch.setattr("app.routers.pipelines.execute_pipeline_task", me)
+    monkeypatch.setattr("app.services.dataset_service.profile_dataset_task", mp)
+#    monkeypatch.setattr("app.routers.pipelines.execute_pipeline_task", me)
     return {"profile": mp, "execute": me}

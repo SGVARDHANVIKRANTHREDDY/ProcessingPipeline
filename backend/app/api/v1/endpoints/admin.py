@@ -32,7 +32,15 @@ async def require_super_admin(user: User = Depends(get_current_user)) -> User:
 @router.get("/dlq")
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
 async def list_dlq(request: Request, page: int = 1, replayed: bool = False, suppressed: bool = False, admin: User = Depends(require_admin), service: AdminService = Depends(get_admin_service)):
-    return await service.list_dlq(admin.id, page, replayed, suppressed, request)
+    limit = 20
+    offset = (page - 1) * limit
+    items, total = await service.list_dlq(admin.id, offset, limit, replayed, suppressed, request)
+    return {
+        "items": [{"id": e.id, "task_name": e.task_name, "queue": e.queue, "error": e.error[:200],
+                   "retry_count": e.retry_count, "replay_count": e.replay_count, "suppressed": e.suppressed,
+                   "created_at": e.created_at.isoformat()} for e in items],
+        "total": total
+    }
 
 @router.post("/dlq/{entry_id}/replay")
 @limiter.limit(settings.RATE_LIMIT_ADMIN_CRITICAL)
@@ -42,8 +50,11 @@ async def replay_dlq(request: Request, entry_id: int, admin: User = Depends(requ
 @router.get("/audit")
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
 async def query_audit(request: Request, page: int = 1, action: Optional[str] = None,
-                       user_id: Optional[int] = None, resource_type: Optional[str] = None, admin: User = Depends(require_admin)):
-    return await service.query_audit(admin.id, page, action, user_id, resource_type, request)
+                       user_id: Optional[int] = None, resource_type: Optional[str] = None, admin: User = Depends(require_admin), service: AdminService = Depends(get_admin_service)):
+    limit = 20
+    offset = (page - 1) * limit
+    items, total = await service.query_audit(admin.id, offset, limit, action, user_id, resource_type, request)
+    return {"items": items, "total": total, "page": page, "page_size": limit}
 
 @router.get("/audit/verify")
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
@@ -76,4 +87,7 @@ async def grant_super_admin(request: Request, target_id: int,
 @router.get("/jobs/failed")
 @limiter.limit(settings.RATE_LIMIT_ADMIN)
 async def list_failed_jobs(request: Request, page: int = 1, _: User = Depends(require_admin), service: AdminService = Depends(get_admin_service)):
-    return await service.list_failed_jobs(page)
+    limit = 20
+    offset = (page - 1) * limit
+    items, total = await service.list_failed_jobs(offset, limit)
+    return {"items": items, "total": total, "page": page, "page_size": limit}

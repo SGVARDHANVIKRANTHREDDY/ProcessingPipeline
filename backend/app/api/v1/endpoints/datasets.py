@@ -22,7 +22,9 @@ _upload_semaphore = asyncio.Semaphore(settings.UPLOAD_MAX_CONCURRENT)
 @router.post("", response_model=dict, status_code=202)
 async def upload_dataset(
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    service: DatasetService = Depends(get_dataset_service),
+    db = Depends(write_db)
 ):
     content_length = request.headers.get("content-length")
     if content_length:
@@ -62,9 +64,13 @@ async def upload_dataset(
 @router.get("", response_model=DatasetList)
 async def list_datasets(
     page: int = 1, page_size: int = 20,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    service: DatasetService = Depends(get_dataset_service)
 ):
-    return await service.list_datasets(user.id, page, page_size)
+    page_size = min(page_size, 100)
+    offset = (page - 1) * page_size
+    items, total = await service.list_datasets(user.id, offset, page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 @router.get("/{dataset_id}", response_model=DatasetOut)
 async def get_dataset(dataset_id: int, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):
@@ -78,14 +84,16 @@ async def get_suggestions(dataset_id: int, user: User = Depends(get_current_user
 @router.get("/compare")
 async def compare_datasets(
     id1: int, id2: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    service: DatasetService = Depends(get_dataset_service)
 ):
     return await service.compare_datasets(id1, id2, user.id)
 
 @router.get("/{dataset_id}/anomalies")
 async def get_dataset_anomalies(
     dataset_id: int,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    service: DatasetService = Depends(get_dataset_service)
 ):
     return await service.get_anomalies(dataset_id, user.id)
 

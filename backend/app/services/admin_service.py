@@ -20,12 +20,7 @@ class AdminService:
 
         total = await admin_repo.count_dlq(self.db, replayed, suppressed)
         items = await admin_repo.list_dlq(self.db, replayed, suppressed, offset, limit)
-        return {
-            "items": [{"id": e.id, "task_name": e.task_name, "queue": e.queue, "error": e.error[:200],
-                       "retry_count": e.retry_count, "replay_count": e.replay_count, "suppressed": e.suppressed,
-                       "created_at": e.created_at.isoformat()} for e in items],
-            "total": total
-        }
+        return items, total
 
     async def replay_dlq(self, admin_id: int, entry_id: int, request_for_audit: Any = None) -> Dict[str, Any]:
         await audit(self.db, AuditAction.DLQ_REPLAY, user_id=admin_id,

@@ -112,12 +112,10 @@ class DatasetService:
 
         return result
 
-    async def list_datasets(self, user_id: int, page: int, page_size: int) -> Dict[str, Any]:
-        page_size = min(page_size, 100)
-        offset = (page - 1) * page_size
+    async def list_datasets(self, user_id: int, offset: int, limit: int):
         total = await dataset_repo.count_by_user(self.db, user_id)
-        items = await dataset_repo.list_by_user(self.db, user_id, offset, page_size)
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        items = await dataset_repo.list_by_user(self.db, user_id, offset, limit)
+        return items, total
 
     async def get_dataset(self, dataset_id: int, user_id: int) -> Dataset:
         ds = await dataset_repo.get_by_user(self.db, dataset_id, user_id)

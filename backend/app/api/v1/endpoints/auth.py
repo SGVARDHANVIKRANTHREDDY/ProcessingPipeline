@@ -1,3 +1,5 @@
+from app.services.auth_service import AuthService
+from app.api.v1.deps import get_auth_service
 """
 API v1 auth endpoints.
 Constraint: Must depend only on Services and schemas.
@@ -9,23 +11,22 @@ from app.core.database.engine import get_db
 from app.models import User
 from app.schemas import UserRegister, UserLogin, TokenPair, RefreshRequest, UserOut
 from app.core.security.auth import get_current_user
-from app.services.auth_service import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=TokenPair, status_code=201)
-async def register(body: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
-    return await auth_service.register(db, body, request)
+async def register(body: UserRegister, request: Request, service: AuthService = Depends(get_auth_service)):
+    return await service.register(body, request)
 
 @router.post("/login", response_model=TokenPair)
-async def login(body: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(body: UserLogin, request: Request, service: AuthService = Depends(get_auth_service)):
     ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
-    return await auth_service.login(db, body, ip, request)
+    return await service.login(body, ip, request)
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    return await auth_service.refresh(db, body.refresh_token, request)
+async def refresh(body: RefreshRequest, request: Request, service: AuthService = Depends(get_auth_service)):
+    return await service.refresh(body.refresh_token, request)
 
 @router.get("/me", response_model=UserOut)
-async def me(user: User = Depends(get_current_user)):
+async def me(user: User = Depends(get_current_user), service: AuthService = Depends(get_auth_service)):
     return user

@@ -40,7 +40,7 @@ def postgres_container():
 async def test_engine(postgres_container):
     # Get the URL from container and convert to asyncpg
     sync_url = postgres_container.get_connection_url()
-    async_url = sync_url.replace("postgresql://", "postgresql+asyncpg://")
+    async_url = sync_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://").replace("postgresql://", "postgresql+asyncpg://")
     
     engine = create_async_engine(async_url, poolclass=NullPool)
     

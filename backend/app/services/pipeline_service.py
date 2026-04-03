@@ -27,61 +27,64 @@ from app.core.config import get_settings
 settings = get_settings()
 
 class PipelineService:
-    async def create_pipeline(self, db: AsyncSession, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
+    def __init__(self, db):
+        self.db = db
+
+    async def create_pipeline(self, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
         steps = [s.model_dump() for s in body.steps]
         pipe = Pipeline(user_id=user_id, dataset_id=body.dataset_id, name=body.name, steps=steps)
-        db.add(pipe)
-        await db.flush()
-        await db.refresh(pipe)
-        await audit(db, AuditAction.PIPELINE_CREATE, user_id=user_id,
+        self.self.db.add(pipe)
+        await self.self.db.flush()
+        await self.self.db.refresh(pipe)
+        await audit(self.db, AuditAction.PIPELINE_CREATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id,
                     detail={"name": pipe.name, "steps": len(steps)}, request=request_for_audit)
         return pipe
 
-    async def list_pipelines(self, db: AsyncSession, user_id: int, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+    async def list_pipelines(self, user_id: int, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         page_size = min(page_size, 100)
         offset = (page - 1) * page_size
-        total = await pipeline_repo.count_by_user(db, user_id)
-        items = await pipeline_repo.list_by_user(db, user_id, offset, page_size)
+        total = await pipeline_repo.count_by_user(self.db, user_id)
+        items = await pipeline_repo.list_by_user(self.db, user_id, offset, page_size)
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
-    async def get_pipeline(self, db: AsyncSession, pipeline_id: int, user_id: int) -> Pipeline:
-        pipe = await pipeline_repo.get_by_user(db, pipeline_id, user_id)
+    async def get_pipeline(self, pipeline_id: int, user_id: int) -> Pipeline:
+        pipe = await pipeline_repo.get_by_user(self.db, pipeline_id, user_id)
         if not pipe:
             raise NotFoundError("Pipeline not found")
         return pipe
 
-    async def update_pipeline(self, db: AsyncSession, pipeline_id: int, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
-        pipe = await self.get_pipeline(db, pipeline_id, user_id)
+    async def update_pipeline(self, pipeline_id: int, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
+        pipe = await self.get_pipeline( pipeline_id, user_id)
         if body.name is not None: pipe.name = body.name
         if body.steps is not None: pipe.steps = [s.model_dump() for s in body.steps]
-        await db.flush()
-        await db.refresh(pipe)
-        await audit(db, AuditAction.PIPELINE_UPDATE, user_id=user_id,
+        await self.self.db.flush()
+        await self.self.db.refresh(pipe)
+        await audit(self.db, AuditAction.PIPELINE_UPDATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id, request=request_for_audit)
         return pipe
 
-    async def delete_pipeline(self, db: AsyncSession, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> None:
-        pipe = await self.get_pipeline(db, pipeline_id, user_id)
-        await audit(db, AuditAction.PIPELINE_DELETE, user_id=user_id,
+    async def delete_pipeline(self, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> None:
+        pipe = await self.get_pipeline( pipeline_id, user_id)
+        await audit(self.db, AuditAction.PIPELINE_DELETE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id, request=request_for_audit)
-        await pipeline_repo.remove(db, id=pipe.id)
+        await pipeline_repo.remove(self.db, id=pipe.id)
 
-    async def translate_prompt(self, db: AsyncSession, prompt: str, dataset_id: Optional[int], user_id: int, request_for_audit: Any = None) -> Dict[str, Any]:
+    async def translate_prompt(self, prompt: str, dataset_id: Optional[int], user_id: int, request_for_audit: Any = None) -> Dict[str, Any]:
         columns = None
         if dataset_id:
-            ds = await dataset_repo.get_by_user(db, dataset_id, user_id)
+            ds = await dataset_repo.get_by_user(self.db, dataset_id, user_id)
             if ds and ds.headers:
                 columns = ds.headers
         raw = await translate_to_steps(prompt, columns)
         validated = validate_ai_output(raw, columns)
-        await audit(db, AuditAction.PIPELINE_TRANSLATE, user_id=user_id,
+        await audit(self.db, AuditAction.PIPELINE_TRANSLATE, user_id=user_id,
                     detail={"prompt": prompt[:100], "steps_accepted": len(validated["steps"])}, request=request_for_audit)
         return validated
 
-    async def execute_pipeline(self, db: AsyncSession, pipeline_id: int, user_id: int, body: Any, idem_key: str, body_bytes: bytes, request_for_audit: Any = None) -> Dict[str, Any]:
-        pipe = await self.get_pipeline(db, pipeline_id, user_id)
-        ds = await dataset_repo.get_by_user(db, body.dataset_id, user_id)
+    async def execute_pipeline(self, pipeline_id: int, user_id: int, body: Any, idem_key: str, body_bytes: bytes, request_for_audit: Any = None) -> Dict[str, Any]:
+        pipe = await self.get_pipeline( pipeline_id, user_id)
+        ds = await dataset_repo.get_by_user(self.db, body.dataset_id, user_id)
         if not ds:
             raise NotFoundError("Dataset not found")
 
@@ -92,7 +95,7 @@ class PipelineService:
             return idem_result["body"]
 
         try:
-            dedup_result = await claim_execution_dedup(db, user_id, pipeline_id, body.dataset_id, pipe.steps)
+            dedup_result = await claim_execution_dedup(self.db, user_id, pipeline_id, body.dataset_id, pipe.steps)
             if dedup_result["action"] == "duplicate":
                 result = {
                     "execution_id": dedup_result.get("existing_execution_id"),
@@ -100,7 +103,7 @@ class PipelineService:
                     "status": "deduplicated",
                     "message": dedup_result.get("message"),
                 }
-                await complete_idempotency_key(db, user_id, idem_key, 202, result)
+                await complete_idempotency_key(self.db, user_id, idem_key, 202, result)
                 return result
 
             schema_warnings = detect_schema_mismatch(pipe.steps, ds.headers or [])
@@ -110,17 +113,17 @@ class PipelineService:
                 status="pending", schema_warnings=schema_warnings or None,
                 idempotency_key=idem_key,
             )
-            db.add(execution)
-            await db.flush()
-            await db.refresh(execution)
+            self.self.db.add(execution)
+            await self.self.db.flush()
+            await self.self.db.refresh(execution)
 
             job = Job(user_id=user_id, job_type="execute",
                       payload={"pipeline_id": pipeline_id, "dataset_id": body.dataset_id,
                                "execution_id": execution.id}, status="pending")
-            db.add(job)
-            await db.flush()
-            await db.refresh(job)
-            await db.commit()
+            self.self.db.add(job)
+            await self.self.db.flush()
+            await self.self.db.refresh(job)
+            await self.self.db.commit()
 
             deterministic_task_id = f"exec-{execution.id}"
             task = execute_pipeline_task.apply_async(
@@ -130,24 +133,24 @@ class PipelineService:
             )
             execution.job_id = task.id
             job.celery_task_id = task.id
-            await db.commit()
+            await self.self.db.commit()
 
             result = {"execution_id": execution.id, "job_id": job.id, "celery_task_id": task.id, "status": "pending"}
-            await complete_idempotency_key(db, user_id, idem_key, 202, result)
-            await complete_execution_dedup(db, user_id, pipeline_id, body.dataset_id, pipe.steps, execution.id)
-            await db.commit()
+            await complete_idempotency_key(self.db, user_id, idem_key, 202, result)
+            await complete_execution_dedup(self.db, user_id, pipeline_id, body.dataset_id, pipe.steps, execution.id)
+            await self.self.db.commit()
 
-            await audit(db, AuditAction.PIPELINE_EXECUTE, user_id=user_id,
+            await audit(self.db, AuditAction.PIPELINE_EXECUTE, user_id=user_id,
                         resource_type="pipeline", resource_id=pipeline_id,
                         detail={"execution_id": execution.id, "dataset_id": body.dataset_id, "idem_key": idem_key[:8]}, request=request_for_audit)
             return result
 
         except Exception as e:
-            await fail_idempotency_key(db, user_id, idem_key)
+            await fail_idempotency_key(self.db, user_id, idem_key)
             raise DependencyError(f"Failed to execute pipeline: {str(e)}")
 
-    async def get_activity_metrics(self, db: AsyncSession, user_id: int) -> List[Dict[str, Any]]:
-        rows = await execution_repo.get_activity_metrics(db, user_id)
+    async def get_activity_metrics(self, user_id: int) -> List[Dict[str, Any]]:
+        rows = await execution_repo.get_activity_metrics(self.db, user_id)
         row_map = {row.d.strftime("%Y-%m-%d"): {"executions": row.total, "success": int(row.success or 0)} for row in rows}
 
         out = []
@@ -159,9 +162,9 @@ class PipelineService:
                 out.append({"date": d, "executions": 0, "success": 0})
         return out
 
-    async def list_executions(self, db: AsyncSession, pipeline_id: int, user_id: int) -> List[Any]:
-        await self.get_pipeline(db, pipeline_id, user_id)
-        execs = await execution_repo.list_by_pipeline(db, pipeline_id)
+    async def list_executions(self, pipeline_id: int, user_id: int) -> List[Any]:
+        await self.get_pipeline( pipeline_id, user_id)
+        execs = await execution_repo.list_by_pipeline(self.db, pipeline_id)
         out = []
         from app.schemas import ExecutionOut
         for ex in execs:
@@ -172,9 +175,9 @@ class PipelineService:
             out.append(d)
         return out
 
-    async def get_execution(self, db: AsyncSession, pipeline_id: int, execution_id: int, user_id: int) -> Any:
-        await self.get_pipeline(db, pipeline_id, user_id)
-        ex = await execution_repo.get_by_pipeline(db, pipeline_id, execution_id)
+    async def get_execution(self, pipeline_id: int, execution_id: int, user_id: int) -> Any:
+        await self.get_pipeline( pipeline_id, user_id)
+        ex = await execution_repo.get_by_pipeline(self.db, pipeline_id, execution_id)
         if not ex:
             raise NotFoundError("Execution not found")
         from app.schemas import ExecutionOut
@@ -184,20 +187,19 @@ class PipelineService:
             except: pass
         return d
 
-    async def fork_pipeline(self, db: AsyncSession, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> Pipeline:
-        old = await self.get_pipeline(db, pipeline_id, user_id)
+    async def fork_pipeline(self, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> Pipeline:
+        old = await self.get_pipeline( pipeline_id, user_id)
         new_pipe = Pipeline(
             user_id=user_id,
             dataset_id=old.dataset_id,
             name=f"{old.name} (Fork)",
             steps=old.steps[:]
         )
-        db.add(new_pipe)
-        await db.flush()
-        await db.refresh(new_pipe)
-        await audit(db, AuditAction.PIPELINE_CREATE, user_id=user_id,
+        self.self.db.add(new_pipe)
+        await self.self.db.flush()
+        await self.self.db.refresh(new_pipe)
+        await audit(self.db, AuditAction.PIPELINE_CREATE, user_id=user_id,
                     resource_type="pipeline", resource_id=new_pipe.id,
                     detail={"forked_from": pipeline_id}, request=request_for_audit)
         return new_pipe
 
-pipeline_service = PipelineService()

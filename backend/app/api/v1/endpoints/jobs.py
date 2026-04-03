@@ -1,3 +1,5 @@
+from app.services.job_service import JobService
+from app.api.v1.deps import get_job_service
 """
 API v1 jobs endpoints.
 Constraint: Must depend only on Services and schemas.
@@ -11,17 +13,15 @@ from app.core.database.engine import get_db
 from app.models import User
 from app.core.security.auth import get_current_user
 from app.schemas import JobOut
-from app.services.job_service import job_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.get("/{job_id}", response_model=JobOut)
-async def get_job(job_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    return await job_service.get_job(db, job_id, user.id)
+async def get_job(job_id: int, user: User = Depends(get_current_user), service: JobService = Depends(get_job_service)):
+    return await service.get_job(job_id, user.id)
 
 @router.get("", response_model=List[JobOut])
 async def list_jobs(
-    page: int = 1, page_size: int = 20, job_type: Optional[str] = None,
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user), 
+    page: int = 1, page_size: int = 20, job_type: Optional[str] = None, user: User = Depends(get_current_user), 
 ):
-    return await job_service.list_jobs(db, user.id, page, page_size, job_type)
+    return await service.list_jobs(user.id, page, page_size, job_type)

@@ -1,3 +1,5 @@
+from app.services.ai_service import AIService
+from app.api.v1.deps import get_ai_service
 """
 API v1 ai endpoints.
 Constraint: Must depend only on Services and schemas.
@@ -10,7 +12,6 @@ from app.models import User
 from app.core.security.auth import get_current_user
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-from app.services.ai_service import ai_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -24,7 +25,6 @@ class ExplainResponse(BaseModel):
 @router.post("/explain", response_model=ExplainResponse)
 async def explain_pipeline(
     body: ExplainRequest,
-    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     request: Request = None
 ):
@@ -32,5 +32,5 @@ async def explain_pipeline(
     Reverse-translates a JSON array of deterministic dataset pipeline steps
     back into a human-readable explanation of what the pipeline accomplishes.
     """
-    res = await ai_service.explain_pipeline(db, user.id, body.steps, request)
+    res = await service.explain_pipeline(user.id, body.steps, request)
     return ExplainResponse(**res)

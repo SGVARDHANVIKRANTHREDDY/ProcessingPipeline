@@ -8,7 +8,10 @@ from app.services.ai_translator import explain_steps
 from app.core.security.audit import audit, AuditAction
 
 class AIService:
-    async def explain_pipeline(self, db: AsyncSession, user_id: int, steps: List[Dict[str, Any]], request_for_audit: Any = None) -> Dict[str, Any]:
+    def __init__(self, db):
+        self.db = db
+
+    async def explain_pipeline(self, user_id: int, steps: List[Dict[str, Any]], request_for_audit: Any = None) -> Dict[str, Any]:
         explanation, error = await explain_steps(steps)
         await audit(
             db,
@@ -19,4 +22,3 @@ class AIService:
         )
         return {"explanation": explanation, "error": error}
 
-ai_service = AIService()

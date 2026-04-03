@@ -58,16 +58,16 @@ def profile_dataset_task(self, dataset_id: int, user_id: int, job_id: int, **kwa
 
         async with AsyncSessionLocal() as db:
             try:
-                r = await db.execute(select(Job).where(Job.id == job_id))
+                r = await self.self.db.execute(select(Job).where(Job.id == job_id))
                 job = r.scalar_one_or_none()
                 if job and job.status == "completed":
                     return job.result or {}
                 if job:
                     job.status = "running"; job.celery_task_id = self.request.id
                     job.started_at = datetime.now(UTC)
-                await db.flush()
+                await self.self.db.flush()
 
-                r = await db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
+                r = await self.self.db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
                 ds = r.scalar_one_or_none()
                 if not ds: raise ValueError(f"Dataset {dataset_id} not found")
 
@@ -83,12 +83,12 @@ def profile_dataset_task(self, dataset_id: int, user_id: int, job_id: int, **kwa
                     job.status = "completed"
                     job.result = {"profile": profile, "suggestions": suggestions}
                     job.progress = 100; job.completed_at = datetime.now(UTC)
-                await db.commit()
+                await self.self.db.commit()
                 audit_sync(AuditAction.DATASET_PROFILED, user_id=user_id,
                            detail={"dataset_id": dataset_id, "trace_id": trace_id})
                 return {"profile": profile, "suggestions": suggestions}
             except Exception:
-                await db.rollback()
+                await self.self.db.rollback()
                 async with AsyncSessionLocal() as db2:
                     from sqlalchemy import select as sel
                     r2 = await db2.execute(sel(Job).where(Job.id == job_id))
@@ -120,7 +120,7 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
 
         async with AsyncSessionLocal() as db:
             try:
-                r = await db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
+                r = await self.self.db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
                 ex = r.scalar_one_or_none()
                 # Exactly-once: completed execution → idempotent return
                 if ex and ex.status == "completed":
@@ -129,7 +129,7 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
                 if ex and ex.status == "running" and ex.locked_by and ex.locked_by != WORKER_ID:
                     return {"skipped": True, "reason": "locked_by_other_worker"}
 
-                lock_result = await db.execute(
+                lock_result = await self.self.db.execute(
                     update(PipelineExecution)
                     .where(PipelineExecution.id == execution_id, PipelineExecution.status == "pending")
                     .values(locked_by=WORKER_ID, locked_at=datetime.now(UTC), status="running")
@@ -138,14 +138,14 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
                 if lock_result.scalar_one_or_none() is None:
                     return {"skipped": True, "reason": "lock_failed"}
 
-                r = await db.execute(select(Job).where(Job.id == job_id))
+                r = await self.self.db.execute(select(Job).where(Job.id == job_id))
                 job = r.scalar_one_or_none()
                 if job:
                     job.status = "running"; job.celery_task_id = self.request.id
                     job.started_at = datetime.now(UTC)
-                await db.flush()
+                await self.self.db.flush()
 
-                r = await db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
+                r = await self.self.db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
                 ds = r.scalar_one_or_none()
                 if not ds: raise ValueError(f"Dataset {dataset_id} not found")
 
@@ -166,7 +166,7 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
                         upload_csv_from_df_sync, result_df, output_key, settings.S3_BUCKET_OUTPUT
                     )
 
-                r = await db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
+                r = await self.self.db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
                 ex = r.scalar_one_or_none()
                 if ex:
                     ex.status = report["status"]; ex.report = report
@@ -178,7 +178,7 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
                     job.result = {"status": report["status"], "output_row_count": len(result_df)}
                     job.progress = 100; job.completed_at = datetime.now(UTC)
 
-                await db.commit()
+                await self.self.db.commit()
                 audit_sync(AuditAction.PIPELINE_EXECUTE, user_id=user_id,
                            detail={"execution_id": execution_id, "status": report["status"],
                                    "rows_in": report["input_count"], "rows_out": report["output_count"],
@@ -186,7 +186,7 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
                 return {"status": report["status"], "output_row_count": len(result_df)}
 
             except Exception as exc:
-                await db.rollback()
+                await self.self.db.rollback()
                 async with AsyncSessionLocal() as db2:
                     from sqlalchemy import select as sel
                     r2 = await db2.execute(sel(PipelineExecution).where(PipelineExecution.id == execution_id))
@@ -217,7 +217,7 @@ def recover_stale_executions():
         from sqlalchemy import select
         threshold = datetime.now(UTC) - timedelta(seconds=settings.JOB_HARD_TIME_LIMIT)
         async with AsyncSessionLocal() as db:
-            r = await db.execute(
+            r = await self.self.db.execute(
                 select(PipelineExecution).where(
                     PipelineExecution.status == "running",
                     PipelineExecution.locked_at < threshold,
@@ -229,7 +229,7 @@ def recover_stale_executions():
                 logger.warning("STALE exec=%d worker=%s", ex.id, ex.locked_by)
                 ex.status = "failed"; ex.error_detail = f"Worker {ex.locked_by} crashed"
                 ex.locked_by = None; ex.locked_at = None; ex.completed_at = datetime.now(UTC)
-            if stale: await db.commit()
+            if stale: await self.self.db.commit()
     asyncio.run(_run())
 
 
@@ -239,7 +239,7 @@ def cleanup_expired_idempotency():
         from app.core.database.engine import AsyncSessionLocal
         from app.core.security.idempotency import cleanup_expired_keys
         async with AsyncSessionLocal() as db:
-            count = await cleanup_expired_keys(db); await db.commit()
+            count = await cleanup_expired_keys(self.db); await self.self.db.commit()
             if count: logger.info("Purged %d expired idempotency keys", count)
     asyncio.run(_run())
 
@@ -252,7 +252,7 @@ def cleanup_old_login_attempts():
         from sqlalchemy import delete
         cutoff = datetime.now(UTC) - timedelta(days=30)
         async with AsyncSessionLocal() as db:
-            r = await db.execute(delete(LoginAttempt).where(LoginAttempt.attempted_at < cutoff))
+            r = await self.self.db.execute(delete(LoginAttempt).where(LoginAttempt.attempted_at < cutoff))
             if r.rowcount: logger.info("Purged %d old login attempts", r.rowcount)
-            await db.commit()
+            await self.self.db.commit()
     asyncio.run(_run())

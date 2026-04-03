@@ -34,8 +34,8 @@ from fastapi import Request, HTTPException, Depends, Header
 from sqlalchemy import text, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
-from ..models import IdempotencyKey
+from app.core.config import get_settings
+from app.models import IdempotencyKey
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

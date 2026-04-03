@@ -8,9 +8,9 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from .config import get_settings
-from .database import get_db
-from .models import User, RefreshToken
+from app.core.config import get_settings
+from app.core.database.engine import get_db
+from app.models import User, RefreshToken
 
 settings = get_settings()
 _pwd  = CryptContext(schemes=["bcrypt"], deprecated="auto")

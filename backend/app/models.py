@@ -12,7 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from .database import Base
+from app.core.database.engine import Base
 
 
 class User(Base):

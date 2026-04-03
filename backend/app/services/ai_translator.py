@@ -2,7 +2,7 @@
 import json
 import logging
 import httpx
-from ..config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

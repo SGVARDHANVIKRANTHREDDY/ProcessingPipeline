@@ -9,12 +9,12 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from .config import get_settings
-from .database import engine
-from .middleware.logging import StructuredLoggingMiddleware, setup_logging
-from .middleware.tracing import TracingMiddleware, setup_otel
+from app.core.config import get_settings
+from app.core.database.engine import engine
+from app.core.middleware.logging import StructuredLoggingMiddleware, setup_logging
+from app.core.middleware.tracing import TracingMiddleware, setup_otel
 from .services.storage import ensure_buckets_async
-from .routers import auth, datasets, pipelines, jobs, admin, ai
+from app.api.v1.endpoints import auth, datasets, pipelines, jobs, admin, ai
 
 # Config validates at import — if SECRET_KEY is missing, app crashes here
 # with a clear error before binding any port.
@@ -92,6 +92,47 @@ app.add_middleware(TracingMiddleware)
 app.add_middleware(StructuredLoggingMiddleware)
 
 
+
+from app.core.exceptions import (
+    NotFoundError, ValidationError, ConflictError, 
+    UnauthorizedError, ForbiddenError, DependencyError, DomainError
+)
+
+@app.exception_handler(NotFoundError)
+async def not_found_handler(request: Request, exc: NotFoundError):
+    logger.warning('NotFoundError: %s', exc.message)
+    return JSONResponse(status_code=404, content={'error': exc.message})
+
+@app.exception_handler(ValidationError)
+async def validation_handler(request: Request, exc: ValidationError):
+    logger.warning('ValidationError: %s', exc.message)
+    return JSONResponse(status_code=400, content={'error': exc.message})
+
+@app.exception_handler(ConflictError)
+async def conflict_handler(request: Request, exc: ConflictError):
+    logger.warning('ConflictError: %s', exc.message)
+    return JSONResponse(status_code=409, content={'error': exc.message})
+
+@app.exception_handler(UnauthorizedError)
+async def unauthorized_handler(request: Request, exc: UnauthorizedError):
+    logger.warning('UnauthorizedError: %s', exc.message)
+    return JSONResponse(status_code=401, content={'error': exc.message})
+
+@app.exception_handler(ForbiddenError)
+async def forbidden_handler(request: Request, exc: ForbiddenError):
+    logger.warning('ForbiddenError: %s', exc.message)
+    return JSONResponse(status_code=403, content={'error': exc.message})
+
+@app.exception_handler(DependencyError)
+async def dependency_handler(request: Request, exc: DependencyError):
+    logger.error('DependencyError: %s - %s', exc.message, str(exc.context))
+    return JSONResponse(status_code=503, content={'error': 'Service temporarily unavailable'})
+
+@app.exception_handler(DomainError)
+async def domain_handler(request: Request, exc: DomainError):
+    logger.error('DomainError: %s', exc.message)
+    return JSONResponse(status_code=500, content={'error': 'Internal server error'})
+
 @app.exception_handler(HTTPException)
 async def http_exc_handler(request: Request, exc: HTTPException):
     # FIX: never leak stack traces or infrastructure details in error responses
@@ -157,5 +198,5 @@ async def health():
 
 @app.get("/metrics", tags=["ops"], include_in_schema=False)
 async def metrics():
-    from .middleware.logging import metrics_endpoint
+    from app.core.middleware.logging import metrics_endpoint
     return await metrics_endpoint()

@@ -36,8 +36,8 @@ from fastapi import Request
 from sqlalchemy import select, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditLog
-from ..config import get_settings
+from app.models import AuditLog
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()

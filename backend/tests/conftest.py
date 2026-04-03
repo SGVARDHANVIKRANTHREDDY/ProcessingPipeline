@@ -13,8 +13,8 @@ from testcontainers.postgres import PostgresContainer
 from sqlalchemy import text
 
 from app.main import app
-from app.database import Base, get_db
-from app.auth import hash_password
+from app.core.database.engine import Base, get_db
+from app.core.security.auth import hash_password
 from app.models import User
 
 import os

@@ -18,7 +18,7 @@ import pandas as pd
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from .config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

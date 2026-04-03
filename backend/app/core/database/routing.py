@@ -5,7 +5,7 @@ while write_db routes to the primary master pool.
 """
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..database import AsyncSessionLocal
+from app.core.database.engine import AsyncSessionLocal
 
 async def write_db() -> AsyncGenerator[AsyncSession, None]:
     """Provides an AsyncSession bound to the primary (write) database. Commits on exit."""

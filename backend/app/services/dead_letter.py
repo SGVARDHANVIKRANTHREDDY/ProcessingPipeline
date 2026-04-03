@@ -16,7 +16,7 @@ import asyncio
 import traceback as tb
 from datetime import datetime, timezone, timedelta
 from celery.signals import task_failure
-from ..config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -29,8 +29,8 @@ async def record_dlq_entry(celery_task_id: str, task_name: str, queue: str,
                             args: list, kwargs: dict, error: str,
                             traceback_str: str, retry_count: int) -> None:
     """Persist a dead letter entry to PostgreSQL."""
-    from ..database import AsyncSessionLocal
-    from ..models import DeadLetterEntry
+    from app.core.database.engine import AsyncSessionLocal
+    from app.models import DeadLetterEntry
 
     logger.error("DLQ_ENTRY task=%s id=%s queue=%s retries=%d error=%.200s",
                  task_name, celery_task_id, queue, retry_count, error)
@@ -58,11 +58,11 @@ async def replay_dlq_entry(entry_id: int, admin_user_id: int | None = None) -> d
     Re-dispatch a dead letter task with safety guards.
     FIX: admin_user_id is now optional — admin.py called with 1 arg → TypeError in v7.
     """
-    from ..database import AsyncSessionLocal
-    from ..models import DeadLetterEntry
+    from app.core.database.engine import AsyncSessionLocal
+    from app.models import DeadLetterEntry
     from sqlalchemy import select
     from ..celery_app import celery_app
-    from .security.audit import audit_sync, AuditAction
+    from app.core.security.audit import audit_sync, AuditAction
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(DeadLetterEntry).where(DeadLetterEntry.id == entry_id))

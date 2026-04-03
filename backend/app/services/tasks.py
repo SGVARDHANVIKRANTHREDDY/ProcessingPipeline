@@ -19,15 +19,15 @@ from datetime import datetime, timezone, timedelta
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
-from ..celery_app import celery_app
-from ..config import get_settings
+from app.core.celery import celery_app
+from app.core.config import get_settings
 from .storage import download_to_df, upload_csv_from_df_sync
 from .profiler import profile_dataframe, generate_smart_suggestions
 from .executor import execute_pipeline
 from .validator import validate_pipeline_steps, detect_schema_mismatch
-from .security.audit import audit_sync, AuditAction
-from .security.idempotency import deterministic_output_key
-from ..middleware.tracing import extract_trace_from_celery_kwargs
+from app.core.security.audit import audit_sync, AuditAction
+from app.core.security.idempotency import deterministic_output_key
+from app.core.middleware.tracing import extract_trace_from_celery_kwargs
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -52,8 +52,8 @@ def profile_dataset_task(self, dataset_id: int, user_id: int, job_id: int, **kwa
     trace_id, _, _ = extract_trace_from_celery_kwargs(kwargs)
 
     async def _run():
-        from ..database import AsyncSessionLocal
-        from ..models import Dataset, Job
+        from app.core.database.engine import AsyncSessionLocal
+        from app.models import Dataset, Job
         from sqlalchemy import select
 
         async with AsyncSessionLocal() as db:
@@ -114,8 +114,8 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
     trace_id, _, _ = extract_trace_from_celery_kwargs(kwargs)
 
     async def _run():
-        from ..database import AsyncSessionLocal
-        from ..models import Dataset, Job, PipelineExecution
+        from app.core.database.engine import AsyncSessionLocal
+        from app.models import Dataset, Job, PipelineExecution
         from sqlalchemy import select, update
 
         async with AsyncSessionLocal() as db:
@@ -212,8 +212,8 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
 @celery_app.task(name="app.services.tasks.recover_stale_executions", queue="default")
 def recover_stale_executions():
     async def _run():
-        from ..database import AsyncSessionLocal
-        from ..models import PipelineExecution
+        from app.core.database.engine import AsyncSessionLocal
+        from app.models import PipelineExecution
         from sqlalchemy import select
         threshold = datetime.now(UTC) - timedelta(seconds=settings.JOB_HARD_TIME_LIMIT)
         async with AsyncSessionLocal() as db:
@@ -236,8 +236,8 @@ def recover_stale_executions():
 @celery_app.task(name="app.services.tasks.cleanup_expired_idempotency", queue="default")
 def cleanup_expired_idempotency():
     async def _run():
-        from ..database import AsyncSessionLocal
-        from .security.idempotency import cleanup_expired_keys
+        from app.core.database.engine import AsyncSessionLocal
+        from app.core.security.idempotency import cleanup_expired_keys
         async with AsyncSessionLocal() as db:
             count = await cleanup_expired_keys(db); await db.commit()
             if count: logger.info("Purged %d expired idempotency keys", count)
@@ -247,8 +247,8 @@ def cleanup_expired_idempotency():
 @celery_app.task(name="app.services.tasks.cleanup_old_login_attempts", queue="default")
 def cleanup_old_login_attempts():
     async def _run():
-        from ..database import AsyncSessionLocal
-        from ..models import LoginAttempt
+        from app.core.database.engine import AsyncSessionLocal
+        from app.models import LoginAttempt
         from sqlalchemy import delete
         cutoff = datetime.now(UTC) - timedelta(days=30)
         async with AsyncSessionLocal() as db:

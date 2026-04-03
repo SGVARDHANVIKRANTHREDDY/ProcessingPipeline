@@ -9,8 +9,8 @@ import sys, os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.config import get_settings
-from app.database import Base
+from app.core.config import get_settings
+from app.core.database.engine import Base
 from app.models import User, Dataset, Pipeline, PipelineExecution, Job  # noqa
 
 config   = context.config

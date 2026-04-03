@@ -29,7 +29,7 @@ class TestWorkerCrashRecovery:
     async def test_stale_lock_detected(self, db_session):
         """An execution locked > JOB_HARD_TIME_LIMIT seconds ago is detected as stale."""
         from app.models import PipelineExecution
-        from app.config import get_settings
+        from app.core.config import get_settings
 
         settings = get_settings()
         stale_time = datetime.now(UTC) - timedelta(seconds=settings.JOB_HARD_TIME_LIMIT + 60)
@@ -53,7 +53,7 @@ class TestWorkerCrashRecovery:
     async def test_fresh_lock_not_stale(self, db_session):
         """A recently locked execution is not stale."""
         from app.models import PipelineExecution
-        from app.config import get_settings
+        from app.core.config import get_settings
         settings = get_settings()
 
         exec_record = PipelineExecution(
@@ -135,7 +135,7 @@ class TestDLQPoisonMessageSuppression:
     async def test_suppress_after_max_replays(self, db_session):
         """DLQ entry exceeding max_replays gets auto-suppressed."""
         from app.models import DeadLetterEntry
-        from app.config import get_settings
+        from app.core.config import get_settings
         settings = get_settings()
 
         entry = DeadLetterEntry(
@@ -154,7 +154,7 @@ class TestDLQPoisonMessageSuppression:
 
     def test_replay_backoff_enforced(self):
         """Replaying too quickly is rejected."""
-        from app.config import get_settings
+        from app.core.config import get_settings
         settings = get_settings()
 
         last_replay = datetime.now(UTC) - timedelta(seconds=10)  # 10s ago
@@ -166,7 +166,7 @@ class TestDLQPoisonMessageSuppression:
 
     def test_poison_threshold_triggers_suppression(self):
         """N consecutive replay failures = suppression."""
-        from app.config import get_settings
+        from app.core.config import get_settings
         settings = get_settings()
 
         replay_count = settings.DLQ_POISON_THRESHOLD  # exactly at threshold
@@ -183,7 +183,7 @@ class TestConcurrentIdempotency:
         Simulates two concurrent requests with same idempotency key.
         The DB UNIQUE constraint on (user_id, key) ensures atomicity.
         """
-        from app.services.security.idempotency import (
+        from app.core.security.idempotency import (
             get_or_create_idempotency_key, hash_request_body
         )
         from fastapi import HTTPException
@@ -205,7 +205,7 @@ class TestConcurrentIdempotency:
     @pytest.mark.asyncio
     async def test_different_users_same_key_independent(self, db_session):
         """Same idempotency key for different users never interferes."""
-        from app.services.security.idempotency import (
+        from app.core.security.idempotency import (
             get_or_create_idempotency_key, hash_request_body
         )
 
@@ -262,7 +262,7 @@ class TestMemorySafety:
 
     def test_column_count_limit_enforced(self):
         """Files with too many columns are rejected before parsing."""
-        from app.services.security.csv_sanitizer import validate_and_sanitize_csv, SecurityError
+        from app.core.security.csv_sanitizer import validate_and_sanitize_csv, SecurityError
         # 501 columns exceeds the 500 limit
         headers = ",".join(f"col{i}" for i in range(501))
         row = ",".join("1" for _ in range(501))
@@ -273,7 +273,7 @@ class TestMemorySafety:
 
     def test_cell_length_limit_enforced(self):
         """Cells exceeding max_cell_length are truncated, not crash."""
-        from app.services.security.csv_sanitizer import validate_and_sanitize_csv
+        from app.core.security.csv_sanitizer import validate_and_sanitize_csv
         content = f"col\n{'x' * 100_000}".encode()
         result = validate_and_sanitize_csv(content, max_cell_length=1000)
         assert len(str(result.df["col"].iloc[0])) <= 1001

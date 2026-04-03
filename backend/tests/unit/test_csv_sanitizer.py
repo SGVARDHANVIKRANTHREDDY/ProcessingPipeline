@@ -3,7 +3,7 @@ Unit tests for CSV sanitizer — covers every injection vector.
 These tests are the proof that security claims are real.
 """
 import pytest
-from app.services.security.csv_sanitizer import (
+from app.core.security.csv_sanitizer import (
     validate_and_sanitize_csv, is_csv_content, compute_sha256,
     SecurityError, SanitizationResult,
 )

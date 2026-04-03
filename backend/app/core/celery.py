@@ -8,7 +8,7 @@ activates at every worker startup — not silently skipped.
 """
 from celery import Celery
 from celery.signals import worker_init, worker_ready
-from .config import get_settings
+from app.core.config import get_settings
 import logging
 
 logger = logging.getLogger(__name__)

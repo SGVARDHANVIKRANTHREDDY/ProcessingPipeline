@@ -1,0 +1,527 @@
+Here’s a production‑oriented roadmap tailored to your repo, with:
+
+Areas → what’s missing
+
+How to implement → concrete steps
+
+What to use → tech choices / patterns that would pass a serious audit
+
+Think of this as: Features first → then hardening → then “FAANG‑ish” polish.
+
+Phase 0 – Refactor & Baseline
+Goal: Make the current skeleton solid enough to extend safely.
+
+0.1. Backend structure hardening
+
+Keep FastAPI, but enforce clear layers:
+
+app/api – routers (HTTP, no business logic).
+
+app/services – business logic (profiling, pipelines, datasets).
+
+app/repositories – DB access (SQLAlchemy ORM).
+
+app/core – config, logging, celery, security.
+
+Add pydantic-settings for config; strictly no os.getenv scattered.
+
+Tech & patterns
+
+FastAPI + Pydantic v2
+
+SQLAlchemy 2.0 style ORM
+
+Alembic for migrations
+
+Phase 1 – Dataset upload & storage (MUST)
+Goal: Make it a real data ingestion platform.
+
+1.1. Dataset model & DB
+
+Implement tables via Alembic:
+
+users – id, email, auth_provider.
+
+datasets – id, user_id, name, original_filename, storage_key, file_size_bytes, n_rows, n_cols, created_at.
+
+dataset_profiles (will use in Phase 2) – dataset_id, profile_json, computed_at.
+
+1.2. Upload API
+
+POST /datasets/upload
+
+Accept multipart file.
+
+Validate type: allow .csv only first (Excel/JSON later).
+
+Validate size (e.g. 50 MB cap configurable).
+
+Store raw file → local fs or S3 (datasets/{user_id}/{dataset_id}/raw.csv).
+
+Create datasets row with metadata.
+
+GET /datasets
+
+List user’s datasets (paginated).
+
+GET /datasets/{id}
+
+Return metadata.
+
+1.3. Parsing & basic schema detection
+
+On upload (or via background job):
+
+Read first N rows with Pandas.
+
+Infer:
+
+columns, dtypes (logical: numeric, categorical, datetime, text).
+
+simple stats: count, min/max, unique count.
+
+Store as schema_json on datasets.
+
+Tech & libraries
+
+Pandas for parsing.
+
+smart-open / boto3 for S3.
+
+Use async FastAPI endpoints that enqueue heavy work to Celery (see Phase 4).
+
+Phase 2 – Data profiler & quality engine
+Goal: strong automatic dataset understanding and health scoring.
+
+2.1. Profiling service
+
+Create app/services/profiler.py with, roughly:
+
+profile_dataset(dataset_id):
+
+Download sample or full CSV.
+
+For each column:
+
+missing %
+
+value distribution (histogram bins for numeric, top K frequencies for categorical)
+
+outlier stats (e.g., z-score > 3 or IQR-based)
+
+skewness, kurtosis (for numeric)
+
+Global:
+
+correlation matrix (Pearson for numeric, maybe Cramér’s V later).
+
+Compute a simple dataset health score:
+
+penalize high missing %, single‑value columns, extreme skew.
+
+Store into dataset_profiles.profile_json.
+
+2.2. Profiler API
+
+POST /datasets/{id}/profile – enqueue profiling job and return job id.
+
+GET /datasets/{id}/profile – get latest profile, including:
+
+per-column metrics
+
+global metrics
+
+health score.
+
+2.3. Tests
+
+Unit tests: profiling small synthetic datasets (edge cases: all missing, all same value, mixed types).
+
+Integration: upload small CSV → profile → assert profile JSON structure.
+
+Tech
+
+Pandas, NumPy, SciPy or pandas-profiling ideas (but implement your own to show engineering depth).
+
+Phase 3 – Pipeline engine (backbone)
+Goal: deterministic, composable pipelines independent of AI.
+
+3.1. Domain model
+
+DB tables:
+
+pipelines – id, user_id, dataset_id (original base), name, description, created_at.
+
+pipeline_steps – id, pipeline_id, order_index, action_name, params_json.
+
+executions – id, pipeline_id, dataset_id, status, created_at, completed_at, output_storage_key, rows, cols, error_message, steps_hash.
+
+Define actions list:
+
+drop_nulls
+
+fill_nulls (with mean/median/mode/constant)
+
+remove_outliers
+
+normalize/standardize
+
+filter_rows (simple predicates: col op value)
+
+select_columns, rename_columns, drop_columns
+
+later: encoding, binning, datetime features, etc.
+
+3.2. Engine implementation
+
+app/services/pipeline_engine.py:
+
+execute_pipeline(execution_id):
+
+Load dataset (raw or previous version).
+
+Apply steps in deterministic order:
+
+Map action_name → pure functions like apply_drop_nulls(df, params).
+
+Write result CSV to storage: executions/{execution_id}/output.csv.
+
+Record steps_hash = hash of (pipeline_id, ordered steps_json) to enforce idempotency.
+
+Ensure:
+
+All actions are pure and deterministic given same inputs.
+
+No step mutates global state.
+
+3.3. Pipeline APIs
+
+POST /pipelines
+
+Create pipeline with list of steps.
+
+GET /pipelines (per user).
+
+GET /pipelines/{id} – include steps.
+
+POST /pipelines/{id}/execute – create execution row and enqueue Celery job.
+
+GET /executions/{id} – status, result info, link to download CSV.
+
+3.4. Tests
+
+Unit: each transformation action with synthetic DataFrames.
+
+Integration: pipeline with multiple steps → compare final DataFrame against expected.
+
+Determinism test: run same pipeline twice → same hash and same data (same CSV content or checksum).
+
+Phase 4 – Async jobs & scalability foundation
+Goal: FAANG-style background processing & resilience.
+
+4.1. Celery integration (finish it properly)
+
+celery_app.py:
+
+separate queues: profiling, execution.
+
+Tasks:
+
+run_profiling(dataset_id)
+
+run_execution(execution_id)
+
+Configure:
+
+broker: Redis
+
+result backend: PostgreSQL or Redis (but execution status must be persisted in DB).
+
+Idempotency: tasks check DB status before executing.
+
+4.2. Job orchestration patterns
+
+Use exponential backoff retries for transient errors.
+
+Implement Dead Letter Queue concept:
+
+On final failure, mark execution as failed + store error_message + log.
+
+4.3. Performance
+
+Start with in‑memory Pandas but:
+
+add row count limits to avoid OOM.
+
+later, integrate chunked reading/writing for large CSVs (phase 7).
+
+Phase 5 – Pipeline history as “chat”
+Goal: pipeline history behaves like conversations.
+
+5.1. Data model
+
+Extend:
+
+pipelines already exist. Add:
+
+session_title (e.g., “Sales Cleaning”), base_dataset_id, current_version_dataset_id.
+
+Optional: pipeline_events table:
+
+id, pipeline_id, event_type (step_added, executed, renamed), payload_json, created_at.
+
+5.2. Backend behavior
+
+When user adds/modifies steps, append “events”.
+
+GET /pipelines/{id}/history:
+
+return ordered events to render as chat-like timeline.
+
+“Re-run” = create new execution with same steps.
+
+“Modify pipeline” = new steps version appended, but keep old executions.
+
+5.3. Frontend
+
+Minimal UI (Next.js / React):
+
+Left: dataset list.
+
+Center: pipeline “conversation” timeline (events + execution results).
+
+Right: preview of dataset schema/profile.
+
+Use Tailwind + shadcn/ui for quick, clean UI.
+
+Phase 6 – Visualization engine
+Goal: first-class visual analytics.
+
+6.1. Backend
+
+Add endpoints:
+
+POST /visualizations/preview
+
+payload: dataset_id or execution_id, chart_type, x, y, options.
+
+returns: base64 PNG or JSON spec (e.g., Plotly spec).
+
+Implement:
+
+histogram
+
+boxplot
+
+correlation heatmap
+
+line plots (time series if datetime present)
+
+scatter for numeric pairs.
+
+6.2. Frontend
+
+Use Plotly.js or Recharts for rendering.
+
+Link charts to profiling (e.g., “view histogram” from profile view).
+
+Tech
+
+Matplotlib/Seaborn or Plotly in backend; for FAANG‑grade audits, prefer returning a JSON spec (e.g., Plotly) and rendering in FE.
+
+Phase 7 – AI layer (explain & mapping)
+Goal: NL → steps + explanation, never arbitrary execution.
+
+7.1. Schema for AI actions
+
+Define strict JSON schema:
+
+json
+{
+  "steps": [
+    {
+      "action": "drop_nulls",
+      "params": { "columns": ["age"], "threshold": 0.5 }
+    }
+  ],
+  "mode": "explain_only" | "execute"
+}
+Validate using Pydantic models or jsonschema before saving/executing.
+
+7.2. AI service
+
+app/services/ai_mapper.py:
+
+Input: dataset profile, current pipeline steps, natural language text.
+
+Output: PipelineSteps conforming to schema.
+
+Use any LLM (e.g., OpenAI, Gemini, local models) but keep it behind this schema.
+
+7.3. API
+
+POST /ai/pipeline_suggest
+
+prompt, dataset_id, pipeline_id.
+
+returns: suggested steps + explanation.
+
+If client chooses “apply”, call POST /pipelines/{id}/steps to append.
+
+7.4. Guardrails
+
+Hard reject if:
+
+unknown action.
+
+params mismatch schema.
+
+Force “explain_only” by default; explicitly require execute=true in UI to run.
+
+Phase 8 – Advanced preprocessing & feature engineering
+Goal: move from “toy” to serious data platform.
+
+8.1. Expand action library
+
+Add actions like:
+
+Encoding:
+
+one‑hot encoding, ordinal encoding with provided order.
+
+Scaling:
+
+standard, min–max, robust.
+
+Date/time:
+
+extract year/month/day, weekday, hour, time since.
+
+Text:
+
+length, simple token count, maybe TF‑IDF (as derived features stored separately).
+
+Feature selection:
+
+drop constant/near-constant columns, drop highly correlated features.
+
+8.2. Reusability
+
+All actions are pure Python functions in services/transformations, with unit tests.
+
+Keep strong type hints and docstrings.
+
+Phase 9 – Security & isolation hardening
+Goal: get closer to that 7+/10 FAANG-style audit.
+
+9.1. Auth & authz
+
+Proper Google OAuth integration via authlib or custom OIDC.
+
+Every dataset/pipeline query is filtered by user_id at repository layer.
+
+Use row-level scoping in repositories, not in controllers.
+
+9.2. File security
+
+MIME type validation + extension check.
+
+Max file size limit (configurable) with clear HTTP 413 error.
+
+CSV sanitization (prefix cells starting with =, +, -, @ to prevent CSV injection).
+
+9.3. API security
+
+Rate limiting (e.g., slowapi or API gateway level).
+
+Input validation with Pydantic; reject unknown properties.
+
+Centralized exception handler returning safe error messages.
+
+9.4. AI safety
+
+Never pass raw DB queries or code to AI.
+
+Only allow AI to emit structured actions, then validate.
+
+Phase 10 – Observability, testing, and deployment polish
+Goal: audit‑friendly engineering discipline.
+
+10.1. Observability
+
+Structured logging with loguru or stdlib + JSON.
+
+Prometheus metrics:
+
+request latency per endpoint
+
+job duration per type (profiling, execution)
+
+failures count.
+
+Tracing with OpenTelemetry:
+
+FastAPI spans → Celery spans with shared trace ids.
+
+10.2. Testing
+
+Unit: > 80% coverage on services (profiling, transformations, pipeline engine).
+
+Integration: dataset upload → profile → pipeline execute → CSV export.
+
+E2E (Playwright or Cypress) for upload, pipeline creation, visualization.
+
+Chaos tests: artificially fail Celery tasks and ensure retries + DLQ.
+
+Security tests:
+
+invalid files, injection attempts, size overflow.
+
+10.3. Deployment
+
+Dockerize frontend & backend.
+
+Use docker-compose for local, but prepare:
+
+K8s manifests or Terraform for cloud (even if not deployed now).
+
+CI/CD:
+
+GitHub Actions: run tests & lint on PR; build images on main.
+
+Suggested tech stack (advanced but realistic)
+Backend
+
+FastAPI, Pydantic v2
+
+SQLAlchemy 2.0 + Alembic
+
+Celery + Redis
+
+Pandas, NumPy, SciPy
+
+Optional: Polars for future performance.
+
+Frontend
+
+Next.js (App Router)
+
+TypeScript
+
+TailwindCSS + shadcn/ui
+
+React Query/TanStack Query for data fetching
+
+Plotly.js or Recharts for charts.
+
+Infra
+
+PostgreSQL
+
+S3 (or MinIO locally)
+
+Nginx or Traefik as reverse proxy
+
+Prometheus + Grafana for metrics
+
+OpenTelemetry for tracing.

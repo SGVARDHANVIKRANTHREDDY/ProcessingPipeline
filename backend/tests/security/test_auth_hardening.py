@@ -38,7 +38,7 @@ class TestAccountLockout:
 
     async def test_expired_token_rejected(self, client):
         import jwt, time
-        from app.config import get_settings
+        from app.core.config import get_settings
         s = get_settings()
         # Create an expired token
         payload = {"sub": "1", "type": "access", "exp": int(time.time()) - 3600}

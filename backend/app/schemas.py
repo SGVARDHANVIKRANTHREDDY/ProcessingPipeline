@@ -63,12 +63,12 @@ class DatasetOut(BaseModel):
     id: int
     name: str
     original_filename: str
-    row_count: int
-    col_count: int
+    n_rows: int
+    n_cols: int
     file_size_bytes: int
-    headers: list[str] | None = None
-    profile: dict | None = None
-    profiling_status: str
+    schema_json: dict | None = None
+    processing_status: str
+    profiling_log: dict | None = None
     created_at: datetime
     model_config = {"from_attributes": True}
 

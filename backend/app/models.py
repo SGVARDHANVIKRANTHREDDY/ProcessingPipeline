@@ -19,6 +19,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int]      = mapped_column(Integer, primary_key=True)
     email: Mapped[str]   = mapped_column(String(255), unique=True, nullable=False, index=True)
+    auth_provider: Mapped[str] = mapped_column(String(50), default="local")
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool]      = mapped_column(Boolean, default=True)
     is_locked: Mapped[bool]      = mapped_column(Boolean, default=False)
@@ -56,20 +57,31 @@ class Dataset(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     original_filename: Mapped[str]  = mapped_column(String(500), nullable=False)
-    s3_key: Mapped[str]             = mapped_column(String(1000), nullable=False)
-    row_count: Mapped[int]          = mapped_column(Integer, default=0)
-    col_count: Mapped[int]          = mapped_column(Integer, default=0)
+    storage_key: Mapped[str]        = mapped_column(String(1000), nullable=False)
     file_size_bytes: Mapped[int]    = mapped_column(BigInteger, default=0)
-    headers: Mapped[list | None]    = mapped_column(JSON, nullable=True)
-    profile: Mapped[dict | None]    = mapped_column(JSON, nullable=True)
-    profiling_status: Mapped[str]   = mapped_column(String(20), default="pending")
+    n_rows: Mapped[int]             = mapped_column(Integer, default=0)
+    n_cols: Mapped[int]             = mapped_column(Integer, default=0)
+    schema_json: Mapped[dict | None]= mapped_column(JSON, nullable=True)
+    processing_status: Mapped[str]  = mapped_column(String(20), default="uploaded")
+    profiling_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     file_hash: Mapped[str | None]   = mapped_column(String(64), nullable=True)
     is_quarantined: Mapped[bool]    = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now())
     owner:      Mapped["User"]      = relationship(back_populates="datasets")
     pipelines:  Mapped[list["Pipeline"]] = relationship(back_populates="dataset")
+    profile:    Mapped["DatasetProfile"] = relationship(back_populates="dataset", uselist=False, cascade="all, delete-orphan")
     executions: Mapped[list["PipelineExecution"]] = relationship(
         foreign_keys="PipelineExecution.input_dataset_id", back_populates="input_dataset")
+
+
+class DatasetProfile(Base):
+    __tablename__ = "dataset_profiles"
+    __table_args__ = (Index("ix_profiles_dataset_computed", "dataset_id", "computed_at"),)
+    id: Mapped[int]      = mapped_column(Integer, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(Integer, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True, unique=True)
+    profile_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    dataset: Mapped["Dataset"] = relationship(back_populates="profile")
 
 
 class Pipeline(Base):

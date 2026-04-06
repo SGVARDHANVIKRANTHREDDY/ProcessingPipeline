@@ -6,7 +6,7 @@ Constraint: Must depend only on Services and schemas.
 No raw SQLAlchemy models or sessions operations permitted.
 """
 import asyncio
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
 from app.core.exceptions import ValidationError, DomainError
 from app.core.database.routing import read_db, write_db
 from app.models import User
@@ -17,49 +17,27 @@ from app.core.config import get_settings
 
 settings = get_settings()
 router = APIRouter(prefix="/datasets", tags=["datasets"])
-_upload_semaphore = asyncio.Semaphore(settings.UPLOAD_MAX_CONCURRENT)
 
-@router.post("", response_model=dict, status_code=202)
+@router.post("/upload", response_model=DatasetOut, status_code=202)
 async def upload_dataset(
-    request: Request,
+    file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    service: DatasetService = Depends(get_dataset_service),
-    db = Depends(write_db)
+    service: DatasetService = Depends(get_dataset_service)
 ):
-    content_length = request.headers.get("content-length")
-    if content_length:
-        cl = int(content_length)
-        if cl > settings.MAX_UPLOAD_SIZE_BYTES:
-            raise ValidationError(f"File too large ({cl} bytes). Max {settings.MAX_UPLOAD_SIZE_BYTES} limit")
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only .csv files are supported")
+    
+    # Read keeping track of size
+    max_bytes = getattr(settings, "MAX_UPLOAD_SIZE_MB", 50) * 1024 * 1024
+    content = b""
+    total_size = 0
+    while chunk := await file.read(8192):
+        total_size += len(chunk)
+        if total_size > max_bytes:
+            raise HTTPException(status_code=413, detail=f"File too large. Max {max_bytes//(1024*1024)}MB allowed.")
+        content += chunk
 
-    if _upload_semaphore.locked() and _upload_semaphore._value == 0:
-        raise ValidationError("Upload queue full - please retry in a few seconds")
-
-    async with _upload_semaphore:
-        form = await request.form()
-        file = form.get("file")
-        if not file:
-            raise ValidationError("No file provided")
-
-        chunks = []
-        total = 0
-        async for chunk in file.file:
-            total += len(chunk)
-            if total > settings.MAX_UPLOAD_SIZE_BYTES:
-                raise ValidationError(f"File exceeds {settings.MAX_UPLOAD_SIZE_BYTES} limit")
-            chunks.append(chunk)
-        content = b"".join(chunks)
-
-        idem_key = get_or_create_idempotency_key(request)
-        if idem_key:
-            idem_result = await get_or_create_idempotency_key(
-                db, user.id, idem_key, "/datasets", hash_request_body(content)
-            )
-            if idem_result["action"] == "replay":
-                return idem_result["body"]
-
-        filename = file.filename or "upload.csv"
-        return await service.upload_dataset(user, content, filename, idem_key, request)
+    return await service.upload_dataset(user=user, content=content, filename=file.filename)
 
 @router.get("", response_model=DatasetList)
 async def list_datasets(
@@ -75,27 +53,6 @@ async def list_datasets(
 @router.get("/{dataset_id}", response_model=DatasetOut)
 async def get_dataset(dataset_id: int, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):
     return await service.get_dataset(dataset_id, user.id)
-
-@router.get("/{dataset_id}/suggestions")
-async def get_suggestions(dataset_id: int, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):
-    suggestions = await service.get_suggestions(dataset_id, user.id)
-    return {"suggestions": suggestions}
-
-@router.get("/compare")
-async def compare_datasets(
-    id1: int, id2: int,
-    user: User = Depends(get_current_user),
-    service: DatasetService = Depends(get_dataset_service)
-):
-    return await service.compare_datasets(id1, id2, user.id)
-
-@router.get("/{dataset_id}/anomalies")
-async def get_dataset_anomalies(
-    dataset_id: int,
-    user: User = Depends(get_current_user),
-    service: DatasetService = Depends(get_dataset_service)
-):
-    return await service.get_anomalies(dataset_id, user.id)
 
 @router.delete("/{dataset_id}", status_code=204)
 async def delete_dataset(dataset_id: int, request: Request, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):

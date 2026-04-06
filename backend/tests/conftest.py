@@ -118,6 +118,6 @@ def mock_celery(monkeypatch):
     task_result.id = "test-task-id"
     mp = MagicMock(); mp.apply_async.return_value = task_result
     me = MagicMock(); me.apply_async.return_value = task_result
-    monkeypatch.setattr("app.services.dataset_service.profile_dataset_task", mp)
+    # monkeypatch.setattr("app.services.dataset_service.profile_dataset_task", mp)
 #    monkeypatch.setattr("app.routers.pipelines.execute_pipeline_task", me)
     return {"profile": mp, "execute": me}

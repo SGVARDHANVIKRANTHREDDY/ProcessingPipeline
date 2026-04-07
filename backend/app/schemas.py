@@ -58,6 +58,25 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+# ── Dataset Profiling ──────────────────────────────────────
+class ColumnProfile(BaseModel):
+    name: str
+    logical_type: str
+    missing_pct: float
+    unique_count: int
+    distribution: dict
+    outliers: dict | None = None
+    stats: dict | None = None
+
+class DatasetProfileOut(BaseModel):
+    dataset_id: int
+    computed_at: datetime
+    summary: dict
+    columns: list[ColumnProfile]
+    correlations: dict[str, dict[str, float]]
+    model_config = {"from_attributes": True}
+
+
 # ── Dataset ──────────────────────────────────────────────────
 class DatasetOut(BaseModel):
     id: int

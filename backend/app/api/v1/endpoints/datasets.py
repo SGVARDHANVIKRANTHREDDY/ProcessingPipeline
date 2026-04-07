@@ -54,6 +54,50 @@ async def list_datasets(
 async def get_dataset(dataset_id: int, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):
     return await service.get_dataset(dataset_id, user.id)
 
+@router.post("/{dataset_id}/profile", status_code=202)
+async def start_dataset_profiling(
+    dataset_id: int, 
+    user: User = Depends(get_current_user), 
+    service: DatasetService = Depends(get_dataset_service)
+):
+    # Enforce ownership
+    await service.get_dataset(dataset_id, user.id)
+    
+    from app.services.profiler import run_profiling_job
+    import asyncio
+    asyncio.create_task(run_profiling_job(dataset_id))
+    
+    return {"dataset_id": dataset_id, "status": "queued"}
+
+@router.get("/{dataset_id}/profile")
+async def get_dataset_profile(
+    dataset_id: int, 
+    user: User = Depends(get_current_user), 
+    service: DatasetService = Depends(get_dataset_service)
+):
+    # Enforce ownership
+    await service.get_dataset(dataset_id, user.id)
+    
+    from app.core.database import get_db
+    from app.models import DatasetProfile
+    db = next(get_db())
+    try:
+        profile = db.query(DatasetProfile).filter(DatasetProfile.dataset_id == dataset_id).first()
+    finally:
+        db.close()
+    
+    if not profile or not profile.profile_json:
+         raise HTTPException(status_code=404, detail="Profile not generated yet")
+    
+    if "error" in profile.profile_json:
+        return {"dataset_id": dataset_id, "computed_at": profile.computed_at, "status": "error", "error": profile.profile_json["error"]}
+
+    return {
+        "dataset_id": dataset_id,
+        "computed_at": profile.computed_at,
+        **profile.profile_json
+    }
+
 @router.delete("/{dataset_id}", status_code=204)
 async def delete_dataset(dataset_id: int, request: Request, user: User = Depends(get_current_user), service: DatasetService = Depends(get_dataset_service)):
     await service.delete_dataset(dataset_id, user.id, request)

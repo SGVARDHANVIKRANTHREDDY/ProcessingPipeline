@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 UTC = timezone.utc
 
-GENESIS_HASH = "GENESIS_0000000000000000000000000000000000000000000000000000000000000000"
+GENESIS_HASH = "0" * 64
 _LOCK_NAMESPACE = 0xA0D1_0000  # audit prefix, 32-bit space for user IDs
 
 

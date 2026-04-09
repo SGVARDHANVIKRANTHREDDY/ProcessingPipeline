@@ -91,13 +91,38 @@ class Pipeline(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str]   = mapped_column(String(255), nullable=False)
-    steps: Mapped[list] = mapped_column(JSON, default=list)
+    steps_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     owner:      Mapped["User"]    = relationship(back_populates="pipelines")
     dataset:    Mapped["Dataset"] = relationship(back_populates="pipelines")
+    pipeline_steps: Mapped[list["PipelineStep"]] = relationship(back_populates="pipeline", cascade="all, delete-orphan", order_by="PipelineStep.order_index")
     executions: Mapped[list["PipelineExecution"]] = relationship(back_populates="pipeline", cascade="all, delete-orphan")
+
+    @property
+    def steps(self) -> list[dict]:
+        # Sort is enforced by order_index in relationship
+        return [{"action": step.action_name, "params": step.params_json} for step in self.pipeline_steps]
+
+
+    @property
+    def steps(self) -> list[dict]:
+        return [{"action": step.action_name, "params": step.params_json} for step in self.pipeline_steps]
+
+class PipelineStep(Base):
+    __tablename__ = "pipeline_steps"
+    __table_args__ = (
+        Index("ix_pipeline_steps_pipeline_order", "pipeline_id", "order_index"),
+        UniqueConstraint("pipeline_id", "order_index", name="uq_pipeline_step_order")
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pipeline_id: Mapped[int] = mapped_column(Integer, ForeignKey("pipelines.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    action_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    params_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    pipeline: Mapped["Pipeline"] = relationship(back_populates="pipeline_steps")
 
 
 class PipelineExecution(Base):
@@ -108,6 +133,7 @@ class PipelineExecution(Base):
     input_dataset_id: Mapped[int] = mapped_column(Integer, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False)
     job_id: Mapped[str | None]    = mapped_column(String(255), nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    steps_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str]           = mapped_column(String(20), default="pending")
     report: Mapped[dict | None]   = mapped_column(JSON, nullable=True)
     output_s3_key: Mapped[str | None] = mapped_column(String(1000), nullable=True)

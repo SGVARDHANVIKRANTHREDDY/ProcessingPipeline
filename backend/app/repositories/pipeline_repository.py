@@ -1,5 +1,6 @@
 from typing import Sequence, Optional
 from sqlalchemy import select, func, case
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
@@ -11,11 +12,13 @@ class PipelineRepository(BaseRepository[Pipeline]):
         super().__init__(Pipeline)
 
     async def get_by_user(self, db: AsyncSession, id: int, user_id: int) -> Optional[Pipeline]:
-        result = await db.execute(select(self.model).filter(self.model.id == id, self.model.user_id == user_id))
+        stmt = select(self.model).options(selectinload(self.model.pipeline_steps)).filter(self.model.id == id, self.model.user_id == user_id)
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_by_user(self, db: AsyncSession, user_id: int, offset: int = 0, limit: int = 20) -> Sequence[Pipeline]:
-        result = await db.execute(select(self.model).filter(self.model.user_id == user_id).order_by(self.model.updated_at.desc()).offset(offset).limit(limit))
+        stmt = select(self.model).options(selectinload(self.model.pipeline_steps)).filter(self.model.user_id == user_id).order_by(self.model.updated_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(stmt)
         return result.scalars().all()
 
     async def count_by_user(self, db: AsyncSession, user_id: int) -> int:

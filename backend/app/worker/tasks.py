@@ -115,91 +115,15 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
 
     async def _run():
         from app.core.database.engine import AsyncSessionLocal
-        from app.models import Dataset, Job, PipelineExecution
-        from sqlalchemy import select, update
+        from app.services.pipeline_engine import execute_pipeline_in_session
 
         async with AsyncSessionLocal() as db:
-            try:
-                r = await self.db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
-                ex = r.scalar_one_or_none()
-                # Exactly-once: completed execution → idempotent return
-                if ex and ex.status == "completed":
-                    logger.info("[TASK:%s] Execution %d already completed — skip", self.request.id, execution_id)
-                    return {"status": ex.status, "output_row_count": ex.output_row_count, "cached": True}
-                if ex and ex.status == "running" and ex.locked_by and ex.locked_by != WORKER_ID:
-                    return {"skipped": True, "reason": "locked_by_other_worker"}
-
-                lock_result = await self.db.execute(
-                    update(PipelineExecution)
-                    .where(PipelineExecution.id == execution_id, PipelineExecution.status == "pending")
-                    .values(locked_by=WORKER_ID, locked_at=datetime.now(UTC), status="running")
-                    .returning(PipelineExecution.id)
-                )
-                if lock_result.scalar_one_or_none() is None:
-                    return {"skipped": True, "reason": "lock_failed"}
-
-                r = await self.db.execute(select(Job).where(Job.id == job_id))
-                job = r.scalar_one_or_none()
-                if job:
-                    job.status = "running"; job.celery_task_id = self.request.id
-                    job.started_at = datetime.now(UTC)
-                await self.db.flush()
-
-                r = await self.db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
-                ds = r.scalar_one_or_none()
-                if not ds: raise ValueError(f"Dataset {dataset_id} not found")
-
-                df = await asyncio.to_thread(download_to_df, ds.s3_key, settings.S3_BUCKET_RAW)
-                cols = list(df.columns)
-                validation = validate_pipeline_steps(steps, cols)
-                if validation["has_hard_errors"]:
-                    raise ValueError(f"Validation: {validation['errors']}")
-                schema_warnings = detect_schema_mismatch(steps, cols)
-
-                report, result_df = execute_pipeline(steps, df)
-
-                # FIX v10: deterministic S3 key — idempotent side effect
-                output_key = None
-                if report["status"] in ("success", "partial") and len(result_df) > 0:
-                    output_key = deterministic_output_key(user_id, execution_id)
-                    await asyncio.to_thread(
-                        upload_csv_from_df_sync, result_df, output_key, settings.S3_BUCKET_OUTPUT
-                    )
-
-                r = await self.db.execute(select(PipelineExecution).where(PipelineExecution.id == execution_id))
-                ex = r.scalar_one_or_none()
-                if ex:
-                    ex.status = report["status"]; ex.report = report
-                    ex.output_s3_key = output_key; ex.output_row_count = len(result_df)
-                    ex.duration_ms = report.get("total_ms"); ex.schema_warnings = schema_warnings or None
-                    ex.completed_at = datetime.now(UTC); ex.locked_by = None; ex.locked_at = None
-                if job:
-                    job.status = "completed"
-                    job.result = {"status": report["status"], "output_row_count": len(result_df)}
-                    job.progress = 100; job.completed_at = datetime.now(UTC)
-
-                await self.db.commit()
-                audit_sync(AuditAction.PIPELINE_EXECUTE, user_id=user_id,
-                           detail={"execution_id": execution_id, "status": report["status"],
-                                   "rows_in": report["input_count"], "rows_out": report["output_count"],
-                                   "trace_id": trace_id})
-                return {"status": report["status"], "output_row_count": len(result_df)}
-
-            except Exception as exc:
-                await self.db.rollback()
-                async with AsyncSessionLocal() as db2:
-                    from sqlalchemy import select as sel
-                    r2 = await db2.execute(sel(PipelineExecution).where(PipelineExecution.id == execution_id))
-                    ex2 = r2.scalar_one_or_none()
-                    if ex2 and ex2.status not in ("completed", "failed"):
-                        ex2.status = "failed"; ex2.error_detail = str(exc)[:1000]
-                        ex2.completed_at = datetime.now(UTC); ex2.locked_by = None; ex2.locked_at = None
-                    r3 = await db2.execute(sel(Job).where(Job.id == job_id))
-                    j3 = r3.scalar_one_or_none()
-                    if j3 and j3.status not in ("completed", "failed"):
-                        j3.status = "failed"; j3.error = str(exc)[:1000]; j3.completed_at = datetime.now(UTC)
-                    await db2.commit()
-                raise
+            await execute_pipeline_in_session(db, execution_id)
+            
+            audit_sync(AuditAction.PIPELINE_EXECUTE, user_id=user_id,
+                       detail={"execution_id": execution_id, "trace_id": trace_id})
+            
+            return {"execution_id": execution_id, "status": "processed"}
 
     try:
         return self.run_in_loop(_run())
@@ -207,7 +131,6 @@ def execute_pipeline_task(self, execution_id: int, pipeline_id: int, dataset_id:
     except Exception as exc:
         logger.exception("[TASK:%s] Execution failed: %s", self.request.id, exc)
         raise self.retry(exc=exc, countdown=settings.JOB_RETRY_BACKOFF)
-
 
 @celery_app.task(name="app.worker.tasks.recover_stale_executions", queue="default")
 def recover_stale_executions():

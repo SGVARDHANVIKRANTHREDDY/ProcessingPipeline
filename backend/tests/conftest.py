@@ -48,6 +48,7 @@ async def test_engine(postgres_container):
     # For speed and simplicity in tests, we can run Base.metadata.create_all on the async engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS audit_global_seq START 1 INCREMENT 1 NO CYCLE"))
         
     yield engine
     await engine.dispose()
@@ -73,11 +74,16 @@ async def client(db_session):
 
 @pytest.fixture
 async def test_user(db_session) -> User:
-    user = User(email="test@example.com", hashed_password=hash_password("TestPass1"))
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
+    from sqlalchemy import select
+    existing = await db_session.execute(select(User).filter_by(email="test@example.com"))
+    user = existing.scalar_one_or_none()
+    if not user:
+        user = User(email="test@example.com", hashed_password=hash_password("TestPass1"))
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
     return user
+
 
 
 @pytest.fixture

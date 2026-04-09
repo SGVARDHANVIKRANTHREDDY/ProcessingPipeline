@@ -8,7 +8,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, Pipeline, PipelineExecution, Job
+from app.models import User, Pipeline, PipelineExecution, Job, PipelineStep
 from app.repositories.pipeline_repository import pipeline_repo, execution_repo
 from app.repositories.dataset_repository import dataset_repo
 from app.core.exceptions import NotFoundError, ValidationError, DependencyError, DomainError
@@ -31,15 +31,31 @@ class PipelineService:
         self.db = db
 
     async def create_pipeline(self, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
-        steps = [s.model_dump() for s in body.steps]
-        pipe = Pipeline(user_id=user_id, dataset_id=body.dataset_id, name=body.name, steps=steps)
+        import hashlib, json
+        
+        steps_data = [s.model_dump() for s in body.steps]
+        steps_hash = hashlib.sha256(json.dumps(steps_data, sort_keys=True).encode()).hexdigest()
+        
+        pipe = Pipeline(user_id=user_id, dataset_id=body.dataset_id, name=body.name, steps_hash=steps_hash)
         self.db.add(pipe)
         await self.db.flush()
         await self.db.refresh(pipe)
+        
+        for idx, s in enumerate(body.steps):
+            step_record = PipelineStep(
+                pipeline_id=pipe.id,
+                order_index=idx,
+                action_name=s.action,
+                params_json=s.params.model_dump() if hasattr(s.params, "model_dump") else s.params
+            )
+            self.db.add(step_record)
+            
+        await self.db.flush()
+        
         await audit(self.db, AuditAction.PIPELINE_CREATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id,
-                    detail={"name": pipe.name, "steps": len(steps)}, request=request_for_audit)
-        return pipe
+                    detail={"name": pipe.name, "steps": len(steps_data)}, request=request_for_audit)
+        return await self.get_pipeline(pipe.id, user_id)
 
     async def list_pipelines(self, user_id: int, offset: int = 0, limit: int = 20):
         limit = min(limit, 100)
@@ -54,14 +70,36 @@ class PipelineService:
         return pipe
 
     async def update_pipeline(self, pipeline_id: int, user_id: int, body: Any, request_for_audit: Any = None) -> Pipeline:
-        pipe = await self.get_pipeline( pipeline_id, user_id)
-        if body.name is not None: pipe.name = body.name
-        if body.steps is not None: pipe.steps = [s.model_dump() for s in body.steps]
+        import hashlib, json
+        from sqlalchemy import delete
+        
+        pipe = await self.get_pipeline(pipeline_id, user_id)
+        if body.name is not None: 
+            pipe.name = body.name
+            
+        if body.steps is not None: 
+            steps_data = [s.model_dump() for s in body.steps]
+            pipe.steps_hash = hashlib.sha256(json.dumps(steps_data, sort_keys=True).encode()).hexdigest()
+            
+            # Remove old steps
+            await self.db.execute(delete(PipelineStep).where(PipelineStep.pipeline_id == pipeline_id))
+            
+            # Add new steps
+            for idx, s in enumerate(body.steps):
+                step_record = PipelineStep(
+                    pipeline_id=pipe.id,
+                    order_index=idx,
+                    action_name=s.action,
+                    params_json=s.params.model_dump() if hasattr(s.params, "model_dump") else s.params
+                )
+                self.db.add(step_record)
+
         await self.db.flush()
         await self.db.refresh(pipe)
+        
         await audit(self.db, AuditAction.PIPELINE_UPDATE, user_id=user_id,
                     resource_type="pipeline", resource_id=pipe.id, request=request_for_audit)
-        return pipe
+        return await self.get_pipeline(pipe.id, user_id)
 
     async def delete_pipeline(self, pipeline_id: int, user_id: int, request_for_audit: Any = None) -> None:
         pipe = await self.get_pipeline( pipeline_id, user_id)

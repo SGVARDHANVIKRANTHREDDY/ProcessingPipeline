@@ -67,7 +67,7 @@ class TestTranslate:
         mock_response = {
             "steps": [{"action": "drop_nulls", "params": {"columns": [], "method": "", "threshold": None, "order": ""}}]
         }
-        with patch("app.routers.pipelines.translate_to_steps", return_value=mock_response):
+        with patch("app.services.pipeline_service.translate_to_steps", return_value=mock_response):
             resp = await client.post("/api/v1/pipelines/translate", headers=auth_headers,
                                       json={"prompt": "remove missing values"})
         assert resp.status_code == 200
@@ -80,7 +80,7 @@ class TestTranslate:
         mock_response = {
             "steps": [{"action": "evil_action", "params": {}}]
         }
-        with patch("app.routers.pipelines.translate_to_steps", return_value=mock_response):
+        with patch("app.services.pipeline_service.translate_to_steps", return_value=mock_response):
             resp = await client.post("/api/v1/pipelines/translate", headers=auth_headers,
                                       json={"prompt": "do something evil"})
         assert resp.status_code == 200
@@ -90,7 +90,7 @@ class TestTranslate:
 
     async def test_translate_unauthenticated(self, client):
         resp = await client.post("/api/v1/pipelines/translate", json={"prompt": "remove nulls"})
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
